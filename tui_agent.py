@@ -1,6 +1,6 @@
 from textual.app import ComposeResult, RenderResult, App
 from textual.containers import Container, Vertical, Horizontal
-from textual.widgets import Static, Input, Button, RichLog
+from textual.widgets import Static, Input, Button, RichLog, LoadingIndicator
 from textual.screen import Screen
 from textual.binding import Binding
 from textual import on
@@ -21,22 +21,21 @@ import pyfiglet
 from pyfiglet import figlet_format
 from datetime import datetime
 
-CORPUS_ASCII = figlet_format("CORA", font="slant")
+CORPUS_ASCII = Text(figlet_format("CORA", font="slant"), style="bold green")
 
 load_dotenv()
 
 # Setup logging to both file and console
 log_file = f"tui_agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stderr),
     ],
 )
 logger = logging.getLogger(__name__)
-logger.info(f"Logging to {log_file}")
+# logger.info(f"Logging to {log_file}")
 
 # Setup
 HF_TOKEN = os.getenv("HF_TOKEN")
@@ -80,23 +79,41 @@ class ChatMessage(Static):
         return text
 
 
-class ChatHistoryPanel(RichLog):
+class ChatHistoryPanel(Static):
     """Panel that displays chat history."""
 
     def __init__(self, **kwargs):
-        super().__init__(auto_scroll=True, wrap=True, **kwargs)
+        super().__init__("", **kwargs)
+        self.pending_query_widget = None
 
     def add_user_message(self, message: str):
         """Add a user message to the chat history."""
-        self.write(Text(f"You: {message}", style="bold green"))
+        widget = Static(
+            f"\nYou: {message}", classes="user-msg pending-query", markup=False
+        )
+        widget.styles.color = "yellow"
+        self.mount(widget)
+        self.pending_query_widget = widget
+        return widget
 
     def add_agent_message(self, message: str):
         """Add an agent message to the chat history."""
-        self.write(Text(f"Agent: {message}", style="bold blue"))
+        widget = Static(f"\nAgent: {message}", classes="agent-msg")
+        widget.styles.color = "green"
+        self.mount(widget)
 
     def add_system_message(self, message: str):
         """Add a system message to the chat history."""
-        self.write(Text(f"[System] {message}", style="dim yellow"))
+        widget = Static(f"\n[System] {message}", classes="system-msg")
+        widget.styles.color = "#666666"
+        self.mount(widget)
+        return widget
+
+    def clear_pending_border(self):
+        """Remove the green border from the pending query."""
+        if self.pending_query_widget:
+            self.pending_query_widget.remove_class("pending-query")
+            self.pending_query_widget = None
 
 
 class ChatScreen(Screen):
@@ -125,10 +142,23 @@ class ChatScreen(Screen):
             # Chat history - takes full available area
             yield ChatHistoryPanel(id="chat-history")
 
+            # Model info row
+            with Horizontal(id="model-info"):
+                yield Static("qwen/qwen3-coder", id="model-name")
+                yield Static("", id="query-time")
+
             # Input area
             with Horizontal(id="input-area"):
                 yield Input("Type your query...", id="query-input")
                 yield Button("⏎", id="send-btn", variant="primary")
+
+            # Status bar with spinner and exit hint
+            with Horizontal(id="status-bar"):
+                yield LoadingIndicator(id="spinner")
+                yield Static(
+                    Text("ctrl+c ", style="white") + Text("exit", style="#666666"),
+                    id="exit-hint",
+                )
 
     def on_mount(self) -> None:
         """Initialize the chat when the screen mounts."""
@@ -180,6 +210,7 @@ class ChatScreen(Screen):
         """Process the user's query."""
         query_input = self.query_one("#query-input", Input)
         chat_history = self.query_one("#chat-history", ChatHistoryPanel)
+        spinner = self.query_one("#spinner")
 
         query = query_input.value.strip()
 
@@ -190,6 +221,9 @@ class ChatScreen(Screen):
         chat_history.add_user_message(query)
         query_input.value = ""
 
+        # Show spinner
+        spinner.display = True
+
         # Process with agent in background
         self.run_worker(
             self._run_agent(query),
@@ -199,20 +233,41 @@ class ChatScreen(Screen):
     async def _run_agent(self, query: str) -> None:
         """Run the agent query in a worker thread."""
         chat_history = self.query_one("#chat-history", ChatHistoryPanel)
+        spinner = self.query_one("#spinner")
+        query_time = self.query_one("#query-time", Static)
 
         try:
-            chat_history.add_system_message("Agent is thinking...")
+            thinking_msg = chat_history.add_system_message("Agent is thinking...")
+
+            import time
+
+            start_time = time.time()
 
             # Run agent in thread pool to avoid blocking the TUI
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(self.executor, self.agent.run, query)
+
+            elapsed = time.time() - start_time
+            if elapsed < 60:
+                time_str = f"{elapsed:.1f}s"
+            else:
+                mins = int(elapsed // 60)
+                secs = elapsed % 60
+                time_str = f"{mins}m {secs:.0f}s"
+            query_time.update(f"{time_str}")
+
+            # Remove thinking message
+            thinking_msg.remove()
 
             chat_history.add_agent_message(str(response))
         except Exception as e:
             logger.exception(f"Error processing query: {query}")
             chat_history.add_system_message(f"Error: {str(e)}")
         finally:
-            # Re-focus input
+            # Hide spinner
+            spinner.display = False
+            # Clear pending border
+            chat_history.clear_pending_border()
             query_input = self.query_one("#query-input", Input)
             query_input.focus()
 
@@ -251,12 +306,76 @@ class ChatApp(App):
         border-top: solid $surface-darken-1;
     }
     
+    #model-info {
+        dock: bottom;
+        height: auto;
+        padding: 0 2;
+        background: $surface;
+        color: #666666;
+    }
+    
+    #model-name {
+        width: 100%;
+    }
+    
+    #query-time {
+        width: 100%;
+        text-align: right;
+    }
+    
+    #status-bar {
+        dock: bottom;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        color: #aaaaaa;
+    }
+    
+    #spinner {
+        width: 20;
+        display: none;
+    }
+    
+    #spinner.active {
+        display: block;
+    }
+    
+    #exit-hint {
+        width: 100%;
+        text-align: right;
+    }
+    
     #query-input {
         width: 100%;
+        min-height: 3;
+        max-height: 8;
+        background: #333333;
+        border-left: thick green;
+        border-top: none;
+        border-right: none;
+        border-bottom: none;
+        color: white;
+        padding: 1 2;
     }
     
     #send-btn {
         min-width: 4;
+    }
+    
+    .pending-query {
+        border-left: thick green;
+        border-top: none;
+        border-right: none;
+        border-bottom: none;
+        padding: 0 2;
+    }
+    
+    .user-msg {
+        padding: 0 2;
+    }
+    
+    .agent-msg {
+        padding: 0 2;
     }
     """
 
