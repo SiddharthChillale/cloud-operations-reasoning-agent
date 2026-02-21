@@ -11,3 +11,7 @@ wheels/
 
 # Environment files
 *.env
+
+client/node_modules/
+
+*.log
