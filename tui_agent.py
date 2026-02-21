@@ -1,6 +1,14 @@
 from textual.app import ComposeResult, RenderResult, App
 from textual.containers import Container, Vertical, Horizontal
-from textual.widgets import Static, Input, Button, RichLog, LoadingIndicator
+from textual.widgets import (
+    Static,
+    Input,
+    Button,
+    RichLog,
+    LoadingIndicator,
+    Markdown,
+    Collapsible,
+)
 from textual.screen import Screen
 from textual.binding import Binding
 from textual import on
@@ -16,8 +24,6 @@ from smolagents import tool
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import logging
-import sys
-import pyfiglet
 from pyfiglet import figlet_format
 from datetime import datetime
 
@@ -63,20 +69,39 @@ def create_boto_client(service_name: str) -> object:
     return session.client(service_name)
 
 
-class ChatMessage(Static):
-    """A styled chat message."""
+class CollapsibleThinking(Collapsible):
+    """A collapsible thinking box for agent thoughts using Textual's Collapsible."""
 
-    def __init__(self, message: str, is_user: bool = False, **kwargs):
-        super().__init__(**kwargs)
-        self.message = message
-        self.is_user = is_user
+    def __init__(self, header: str = "", **kwargs):
+        self.header = header
+        self.thought_content = ""
+        self.code_content = ""
+        super().__init__(title=header, collapsed=True, **kwargs)
 
-    def render(self) -> RenderResult:
-        if self.is_user:
-            text = Text(f"You: {self.message}", style="bold green")
-        else:
-            text = Text(f"Agent: {self.message}", style="bold blue")
-        return text
+    def update_thinking(
+        self, header: str = "", model_output: str = None, code_action: str = None
+    ):
+        """Update the thinking content."""
+        if header:
+            self.header = header
+            self.title = header
+
+        # Keep thought as plain text, only use markdown for code
+        self.thought_content = model_output if model_output else ""
+        self.code_content = f"```python\n{code_action}\n```" if code_action else ""
+
+        # Clear existing content
+        self.remove_children()
+
+        # Add thought as Static (plain text)
+        if self.thought_content:
+            self.mount(
+                Static(f"Thought: {self.thought_content}", classes="thought-text")
+            )
+
+        # Add code as Markdown
+        if self.code_content:
+            self.mount(Markdown(self.code_content))
 
 
 class ChatHistoryPanel(Static):
@@ -109,6 +134,15 @@ class ChatHistoryPanel(Static):
         self.mount(widget)
         return widget
 
+    def add_thinking(
+        self, header: str = "", model_output: str = None, code_action: str = None
+    ):
+        """Add a collapsible thinking box."""
+        widget = CollapsibleThinking(classes="thinking-box")
+        self.mount(widget)
+        widget.update_thinking(header, model_output, code_action)
+        return widget
+
     def clear_pending_border(self):
         """Remove the green border from the pending query."""
         if self.pending_query_widget:
@@ -128,6 +162,11 @@ class ChatScreen(Screen):
         self.agent = None
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.show_welcome = True
+        self._agent_running = False
+
+    def on_unmount(self) -> None:
+        """Clean up executor when screen unmounts."""
+        self.executor.shutdown(wait=False)
 
     def compose(self) -> ComposeResult:
         """Compose the layout."""
@@ -171,7 +210,7 @@ class ChatScreen(Screen):
             logger.info("Agent initialized successfully")
 
             chat_history = self.query_one("#chat-history", ChatHistoryPanel)
-            chat_history.add_system_message("Agent initialized. Ready to chat!")
+            # chat_history.add_system_message("Agent initialized. Ready to chat!")
 
             # Focus on input
             query_input = self.query_one("#query-input", Input)
@@ -217,7 +256,7 @@ class ChatScreen(Screen):
         if not query:
             return
 
-        # Add user message
+        # Add user message immediately
         chat_history.add_user_message(query)
         query_input.value = ""
 
@@ -225,27 +264,92 @@ class ChatScreen(Screen):
         spinner.display = True
 
         # Process with agent in background
+        self._agent_running = True
         self.run_worker(
             self._run_agent(query),
             exclusive=True,
         )
 
     async def _run_agent(self, query: str) -> None:
-        """Run the agent query in a worker thread."""
+        """Run the agent query in a worker thread with streaming."""
         chat_history = self.query_one("#chat-history", ChatHistoryPanel)
         spinner = self.query_one("#spinner")
         query_time = self.query_one("#query-time", Static)
 
         try:
-            thinking_msg = chat_history.add_system_message("Agent is thinking...")
-
             import time
 
             start_time = time.time()
 
-            # Run agent in thread pool to avoid blocking the TUI
+            def stream_agent():
+                """Run agent in thread and yield steps."""
+                return self.agent.run(query, stream=True)
+
+            # Run agent in thread pool
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(self.executor, self.agent.run, query)
+            stream_gen = await loop.run_in_executor(self.executor, stream_agent)
+
+            def get_next_step():
+                """Get next step from generator in thread."""
+                try:
+                    return next(stream_gen)
+                except StopIteration:
+                    return None
+                except Exception as e:
+                    logger.error(f"Error getting next step: {e}")
+                    return None
+
+            # Process steps
+            while self._agent_running:
+                step = await loop.run_in_executor(self.executor, get_next_step)
+
+                if step is None:
+                    break
+
+                # Handle different step types
+                from smolagents.memory import ActionStep, PlanningStep, FinalAnswerStep
+
+                if isinstance(step, PlanningStep):
+                    continue
+
+                elif isinstance(step, ActionStep):
+                    step_number = step.step_number
+
+                    # Get model_output (thought)
+                    model_output = None
+                    if step.model_output:
+                        thought = step.model_output
+                        if isinstance(thought, str):
+                            model_output = thought
+                        else:
+                            model_output = str(thought)
+
+                    # Get code_action
+                    code_action = step.code_action
+
+                    # Create new thinking box for each step (keep all steps)
+                    if model_output or code_action:
+                        header = f"Step #{step_number}"
+
+                        def add_thinking():
+                            chat_history.add_thinking(header, model_output, code_action)
+                            # Force UI refresh
+                            self.screen.refresh()
+
+                        self.call_later(add_thinking)
+
+                elif isinstance(step, FinalAnswerStep):
+                    # Final answer received - just show answer, keep thinking boxes
+                    def finish():
+                        chat_history.add_agent_message(str(step.output))
+                        # Force UI refresh
+                        self.screen.refresh()
+
+                    self.call_later(finish)
+                    break
+
+                # Yield to allow UI updates
+                await asyncio.sleep(0)
 
             elapsed = time.time() - start_time
             if elapsed < 60:
@@ -254,22 +358,30 @@ class ChatScreen(Screen):
                 mins = int(elapsed // 60)
                 secs = elapsed % 60
                 time_str = f"{mins}m {secs:.0f}s"
-            query_time.update(f"{time_str}")
 
-            # Remove thinking message
-            thinking_msg.remove()
+            def update_time():
+                query_time.update(f"{time_str}")
 
-            chat_history.add_agent_message(str(response))
+            self.call_later(update_time)
+
         except Exception as e:
             logger.exception(f"Error processing query: {query}")
-            chat_history.add_system_message(f"Error: {str(e)}")
+
+            def show_error():
+                chat_history.add_system_message(f"Error: {str(e)}")
+
+            self.call_later(show_error)
         finally:
+            self._agent_running = False
+
             # Hide spinner
-            spinner.display = False
-            # Clear pending border
-            chat_history.clear_pending_border()
-            query_input = self.query_one("#query-input", Input)
-            query_input.focus()
+            def hide_spinner():
+                spinner.display = False
+                chat_history.clear_pending_border()
+                query_input_widget = self.query_one("#query-input", Input)
+                query_input_widget.focus()
+
+            self.call_later(hide_spinner)
 
 
 class ChatApp(App):
@@ -277,7 +389,7 @@ class ChatApp(App):
 
     CSS = """
     Screen {
-        background: $surface;
+        background: #000000;
     }
     
     #main-container {
@@ -289,21 +401,18 @@ class ChatApp(App):
         dock: top;
         height: auto;
         padding: 1 2;
-        background: $surface;
+        background: #000000;
     }
     
     #chat-history {
         height: 100%;
-        border: solid $surface-darken-1;
+        # border: solid $surface-darken-1;
         margin: 1 2;
-    }
-    
-    #input-area {
-        dock: bottom;
-        height: auto;
-        padding: 1 2;
-        background: $surface;
-        border-top: solid $surface-darken-1;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-background: #000000;
+        scrollbar-color: lavenderblush;
     }
     
     #model-info {
@@ -314,12 +423,28 @@ class ChatApp(App):
         color: #666666;
     }
     
+    #input-area {
+        dock: bottom;
+        height: auto;
+        padding: 1 2;
+        background: #000000;
+        # border-top: solid $surface-darken-1;
+    }
+    
+    #model-info {
+        dock: bottom;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        color: #aaaaaa;
+    }
+    
     #model-name {
-        width: 100%;
+        width: 80%;
     }
     
     #query-time {
-        width: 100%;
+        width: 20%;
         text-align: right;
     }
     
@@ -327,7 +452,7 @@ class ChatApp(App):
         dock: bottom;
         height: auto;
         padding: 1 2;
-        background: $surface;
+        background: #000000;
         color: #aaaaaa;
     }
     
@@ -347,8 +472,8 @@ class ChatApp(App):
     
     #query-input {
         width: 100%;
-        min-height: 3;
-        max-height: 8;
+        min-height: 6;
+        max-height: 12;
         background: #333333;
         border-left: thick green;
         border-top: none;
@@ -367,7 +492,7 @@ class ChatApp(App):
         border-top: none;
         border-right: none;
         border-bottom: none;
-        padding: 0 2;
+        padding: 1 2 1 2;
     }
     
     .user-msg {
@@ -376,6 +501,29 @@ class ChatApp(App):
     
     .agent-msg {
         padding: 0 2;
+    }
+    
+    .thinking-box {
+        background: #1a1a1a;
+        margin: 1 0;
+    }
+    
+    .thinking-box > Collapsible {
+        background: #1a1a1a;
+    }
+    
+    .thinking-box Collapsible > .collapsible--title {
+        color: #00ff00;
+        text-style: bold;
+    }
+    
+    .thinking-box Collapsible:hover > .collapsible--title {
+        color: #66ff66;
+    }
+    
+    .thought-text {
+        color: #888888;
+        padding: 0 1;
     }
     """
 
