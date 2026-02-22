@@ -19,10 +19,6 @@ uv add <package>
 
 # Add a dev dependency
 uv add --dev <package>
-
-# Run the application
-uv run python main.py
-uv run python tui_agent.py
 ```
 
 ## Build, Lint, and Test Commands
@@ -30,26 +26,30 @@ uv run python tui_agent.py
 ### Running the Application
 
 ```bash
-# Run the main CLI chat interface
-python main.py
+# Run CLI mode (default)
+uv run python main.py
 
-# Run the Textual TUI application
-python tui_agent.py
+# Run TUI mode
+uv run python main.py --tui
+
+# Run via module syntax
+uv run python -m clients.cli.app
+uv run python -m clients.tui.app
 ```
 
 ### Linting and Type Checking
 
-This project uses **ruff** for linting (evidenced by `.ruff_cache` directory).
+This project uses **ruff** for linting.
 
 ```bash
-# Run ruff linter
-ruff check .
+# Run ruff linter (via uv)
+uv run ruff check .
 
 # Run ruff with auto-fix
-ruff check --fix .
+uv run ruff check --fix .
 
 # Format with ruff
-ruff format .
+uv run ruff format .
 ```
 
 ### Testing
@@ -68,6 +68,12 @@ pytest tests/test_file.py::test_function_name
 
 # Run tests matching a pattern
 pytest -k "test_pattern"
+
+# Run tests with verbose output
+pytest -v
+
+# Run tests and stop on first failure
+pytest -x
 ```
 
 ## Code Style Guidelines
@@ -99,7 +105,8 @@ from dotenv import load_dotenv
 from rich.console import Console
 from smolagents import CodeAgent, tool
 
-from .local_module import LocalClass
+from src.agents import cora_agent
+from src.models import openrouter_model
 ```
 
 ### Formatting
@@ -139,7 +146,7 @@ def create_boto_client(service_name: str) -> object:
 - Example:
 ```python
 try:
-    self.agent = CodeAgent(tools=[...], model=...)
+    self.agent = cora_agent()
 except Exception as e:
     logger.exception("Failed to initialize agent")
     chat_history.add_system_message(f"Error: {str(e)}")
@@ -164,10 +171,40 @@ def create_boto_client(service_name: str) -> object:
     return session.client(service_name)
 ```
 
+#### Creating Agents
+```python
+from smolagents import CodeAgent
+from src.models import openrouter_model
+from src.tools import create_boto_client
+
+def cora_agent() -> CodeAgent:
+    return CodeAgent(
+        tools=[create_boto_client],
+        model=openrouter_model,
+        additional_authorized_imports=["botocore.exceptions"],
+    )
+```
+
 #### Textual TUI Components
 - Use `ComposeResult` for layout composition
-- Use `@on()` decorators for event handlers
+- Use `@on()` decorators for event handlers (REQUIRED for events to work)
 - Use `call_later()` for UI updates from background threads
+- Use `run_worker()` for async background tasks
+
+Example:
+```python
+from textual.app import App, ComposeResult
+from textual.widgets import Input, Button
+from textual import on
+
+class ChatScreen(Screen):
+    @on(Input.Submitted, "#query-input")
+    def handle_submit(self, event: Input.Submitted) -> None:
+        self._process_query()
+
+    def _process_query(self) -> None:
+        self.run_worker(self._run_agent(), exclusive=True)
+```
 
 #### Rich Console Output
 ```python
@@ -187,6 +224,7 @@ console.print(Panel("[bold cyan]Title[/bold cyan]", expand=False))
 ### Logging
 
 - Use Python's `logging` module
+- Use `src.utils.logging.setup_logger()` for consistent logging
 - Set appropriate log levels (DEBUG, INFO, WARNING, ERROR)
 - Use `logger.exception()` for error logging with tracebacks
 
@@ -194,11 +232,30 @@ console.print(Panel("[bold cyan]Title[/bold cyan]", expand=False))
 
 ```
 .
-├── main.py          # CLI chat interface
-├── tui_agent.py     # Textual TUI application
-├── pyproject.toml   # Project configuration
-├── .env             # Environment variables (gitignored)
-└── scripts/         # Utility scripts (empty)
+├── main.py                  # Entry point - routes to clients
+├── pyproject.toml           # Project configuration
+├── .env                     # Environment variables (gitignored)
+├── src/                    # Core application code
+│   ├── agents/             # Agent implementations
+│   │   ├── __init__.py
+│   │   └── aws_agent.py
+│   ├── tools/              # Tool definitions
+│   │   ├── __init__.py
+│   │   └── aws_tools.py
+│   ├── models/             # Model configurations
+│   │   ├── __init__.py
+│   │   └── openrouter_model.py
+│   └── utils/              # Utilities
+│       ├── __init__.py
+│       └── logging.py
+├── clients/                # Client interfaces
+│   ├── cli/               # CLI chat interface
+│   │   ├── __init__.py
+│   │   └── app.py
+│   └── tui/               # Textual TUI interface
+│       ├── __init__.py
+│       └── app.py
+└── tests/                 # Test files (when added)
 ```
 
 ## Dependencies
@@ -211,9 +268,42 @@ Key dependencies (from `pyproject.toml`):
 - `boto3` - AWS SDK
 - `rich` - Rich console output
 - `langfuse` - Observability
+- `pyfiglet` - ASCII art
 
 ## Additional Notes
 
 - The project uses OpenRouter API for LLM calls (requires `OPENROUTER_KEY`)
 - AWS profile "notisphere" is hardcoded for boto3 sessions
 - The agent is configured with `additional_authorized_imports=["botocore.exceptions"]`
+- Use `uv run` prefix for all commands to ensure dependencies are available
+
+## Textual App Development Skill
+
+When working with Textual TUI applications:
+
+1. **Event Handling**: Always use `@on()` decorators for event handlers. Without the decorator, the handler will NOT be called.
+   ```python
+   # CORRECT
+   @on(Button.Pressed, "#send-btn")
+   def handle_press(self, event: Button.Pressed) -> None:
+       ...
+
+   # WRONG - will not work
+   def handle_press(self, event: Button.Pressed) -> None:
+       ...
+   ```
+
+2. **Background Tasks**: Use `run_worker()` for background tasks and `call_later()` to update UI from worker threads.
+   ```python
+   self.run_worker(self._async_task(), exclusive=True)
+
+   def _async_task(self) -> None:
+       # Do work
+       self.call_later(self._update_ui)
+   ```
+
+3. **Thread Safety**: Textual UI updates must happen on the main thread. Use `call_later()` to schedule UI updates from background threads.
+
+4. **Screen Management**: Use `self.push_screen()` to navigate to new screens and `self.pop_screen()` to go back.
+
+5. **CSS Styling**: Define CSS in the `CSS` class attribute. Use Textual's color system (`$surface`, `$text`, etc.) for theme compatibility.

@@ -69,41 +69,6 @@ def create_boto_client(service_name: str) -> object:
     return session.client(service_name)
 
 
-class CollapsibleThinking(Collapsible):
-    """A collapsible thinking box for agent thoughts using Textual's Collapsible."""
-
-    def __init__(self, header: str = "", **kwargs):
-        self.header = header
-        self.thought_content = ""
-        self.code_content = ""
-        super().__init__(title=header, collapsed=True, **kwargs)
-
-    def update_thinking(
-        self, header: str = "", model_output: str = None, code_action: str = None
-    ):
-        """Update the thinking content."""
-        if header:
-            self.header = header
-            self.title = header
-
-        # Keep thought as plain text, only use markdown for code
-        self.thought_content = model_output if model_output else ""
-        self.code_content = f"```python\n{code_action}\n```" if code_action else ""
-
-        # Clear existing content
-        self.remove_children()
-
-        # Add thought as Static (plain text)
-        if self.thought_content:
-            self.mount(
-                Static(f"Thought: {self.thought_content}", classes="thought-text")
-            )
-
-        # Add code as Markdown
-        if self.code_content:
-            self.mount(Markdown(self.code_content))
-
-
 class ChatHistoryPanel(Static):
     """Panel that displays chat history."""
 
@@ -124,7 +89,7 @@ class ChatHistoryPanel(Static):
     def add_agent_message(self, message: str):
         """Add an agent message to the chat history."""
         widget = Static(f"\nAgent: {message}", classes="agent-msg")
-        widget.styles.color = "green"
+        widget.styles.color = "aliceblue"
         self.mount(widget)
 
     def add_system_message(self, message: str):
@@ -134,14 +99,24 @@ class ChatHistoryPanel(Static):
         self.mount(widget)
         return widget
 
-    def add_thinking(
-        self, header: str = "", model_output: str = None, code_action: str = None
-    ):
-        """Add a collapsible thinking box."""
-        widget = CollapsibleThinking(classes="thinking-box")
-        self.mount(widget)
-        widget.update_thinking(header, model_output, code_action)
-        return widget
+    def add_thinking(self, step_number: int, model_output: str, code_action: str):
+        """Add a collapsible thinking box for a step."""
+        header = f"Step #{step_number}"
+
+        # Create widgets
+        widgets = []
+        if model_output:
+            widgets.append(Static(f"Thought: {model_output}", classes="thought-text"))
+        if code_action:
+            widgets.append(Markdown(f"```python\n{code_action}\n```"))
+
+        # Create collapsible with children in constructor (proper way)
+        collapsible = Collapsible(
+            *widgets, title=header, collapsed=True, classes="thinking-box"
+        )
+        self.mount(collapsible)
+
+        return collapsible
 
     def clear_pending_border(self):
         """Remove the green border from the pending query."""
@@ -329,10 +304,11 @@ class ChatScreen(Screen):
 
                     # Create new thinking box for each step (keep all steps)
                     if model_output or code_action:
-                        header = f"Step #{step_number}"
 
                         def add_thinking():
-                            chat_history.add_thinking(header, model_output, code_action)
+                            chat_history.add_thinking(
+                                step_number, model_output or "", code_action or ""
+                            )
                             # Force UI refresh
                             self.screen.refresh()
 
@@ -512,13 +488,23 @@ class ChatApp(App):
         background: #1a1a1a;
     }
     
+    .thinking-box Collapsible {
+        border: solid #333333;
+        margin: 1 0;
+    }
+    
     .thinking-box Collapsible > .collapsible--title {
         color: #00ff00;
         text-style: bold;
+        padding: 0 1;
     }
     
-    .thinking-box Collapsible:hover > .collapsible--title {
-        color: #66ff66;
+    .thinking-box Collapsible > .collapsible--title:hover {
+        background: #333333;
+    }
+    
+    .thinking-box Collapsible .collapsible--toggle {
+        color: #00ff00;
     }
     
     .thought-text {
