@@ -9,7 +9,7 @@ load_dotenv()
 
 CONFIG_DIR = Path.home() / ".config" / "cora"
 CONFIG_FILE = "config.yaml"
-REPO_CONFIG_FILE = Path(__file__).parent.parent / "config.yaml"
+REPO_CONFIG_FILE = Path(__file__).parent.parent / ".config" / "cora.yaml"
 
 
 def _load_yaml_config(config_path: Path) -> dict:

@@ -26,14 +26,10 @@ uv add --dev <package>
 ### Running the Application
 
 ```bash
-# Run CLI mode (default)
+# Run the application (TUI mode - default)
 uv run python main.py
 
-# Run TUI mode
-uv run python main.py --tui
-
 # Run via module syntax
-uv run python -m clients.cli.app
 uv run python -m clients.tui.app
 ```
 

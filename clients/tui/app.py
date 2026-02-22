@@ -58,7 +58,13 @@ class ChatHistoryPanel(Static):
         self.mount(widget)
         return widget
 
-    def add_thinking(self, step_number: int, model_output: str, code_action: str):
+    def add_thinking(
+        self,
+        step_number: int,
+        model_output: str,
+        code_action: str,
+        execution_result: str = "",
+    ):
         """Add a collapsible thinking box for a step."""
         header = f"Step #{step_number}"
 
@@ -67,6 +73,13 @@ class ChatHistoryPanel(Static):
             widgets.append(Static(f"Thought: {model_output}", classes="thought-text"))
         if code_action:
             widgets.append(Markdown(f"```python\n{code_action}\n```"))
+        if execution_result:
+            result_label = (
+                "Result:" if "error" not in execution_result.lower() else "Error:"
+            )
+            widgets.append(
+                Static(f"{result_label} {execution_result}", classes="result-text")
+            )
 
         collapsible = Collapsible(
             *widgets, title=header, collapsed=False, classes="thinking-box"
@@ -237,12 +250,16 @@ class ChatScreen(Screen):
                             model_output = str(thought)
 
                     code_action = step.code_action
+                    execution_result = step.observations if step.observations else None
 
-                    if model_output or code_action:
+                    if model_output or code_action or execution_result:
 
                         def add_thinking():
                             chat_history.add_thinking(
-                                step_number, model_output or "", code_action or ""
+                                step_number,
+                                model_output or "",
+                                code_action or "",
+                                execution_result or "",
                             )
                             self.screen.refresh()
 
@@ -438,6 +455,11 @@ class ChatApp(App):
     
     .thought-text {
         color: #888888;
+        padding: 0 1;
+    }
+    
+    .result-text {
+        color: #00ffff;
         padding: 0 1;
     }
     """

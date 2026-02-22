@@ -38,19 +38,9 @@ def run_tui():
     app.run()
 
 
-def run_cli():
-    """Launch the CLI application."""
-    from clients.cli.app import run
-
-    run()
-
-
-def main(tui: bool = typer.Option(False, "--tui", help="Launch TUI interface")):
-    """Route to the appropriate client interface."""
-    if tui:
-        run_tui()
-    else:
-        run_cli()
+def main():
+    """Launch the Textual TUI application."""
+    run_tui()
 
 
 if __name__ == "__main__":
