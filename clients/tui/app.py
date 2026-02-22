@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from pyfiglet import figlet_format
 from rich.align import Align
-from rich.panel import Panel
 from rich.text import Text
 from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
 from textual import on
@@ -22,6 +21,9 @@ from textual.widgets import (
 )
 
 from src.agents import cora_agent
+from src.config import get_config
+from src.themes import BUILT_IN_THEMES
+from clients.tui.theme_picker import ThemePickerModal
 
 CORPUS_ASCII = Text(figlet_format("CORA", font="slant"), style="bold green")
 
@@ -37,10 +39,7 @@ class ChatHistoryPanel(Static):
 
     def add_user_message(self, message: str):
         """Add a user message to the chat history."""
-        widget = Static(
-            f"\n{message}", classes="user-msg pending-query", markup=False
-        )
-        widget.styles.color = "yellow"
+        widget = Static(f"\n{message}", classes="user-msg pending-query", markup=False)
         self.mount(widget)
         self.pending_query_widget = widget
         return widget
@@ -48,13 +47,11 @@ class ChatHistoryPanel(Static):
     def add_agent_message(self, message: str):
         """Add an agent message to the chat history."""
         widget = Static(f"\n{message}", classes="agent-msg")
-        widget.styles.color = "aliceblue"
         self.mount(widget)
 
     def add_system_message(self, message: str):
         """Add a system message to the chat history."""
         widget = Static(f"\n[System] {message}", classes="system-msg")
-        widget.styles.color = "#666666"
         self.mount(widget)
         return widget
 
@@ -135,7 +132,7 @@ class ChatScreen(Screen):
             with Horizontal(id="status-bar"):
                 yield LoadingIndicator(id="spinner")
                 yield Static(
-                    Text("ctrl+c ", style="white") + Text("exit", style="#666666"),
+                    Text("ctrl+c quit | ctrl+t theme", style="$text-muted"),
                     id="exit-hint",
                 )
 
@@ -313,7 +310,7 @@ class ChatApp(App):
 
     CSS = """
     Screen {
-        background: #000000;
+        background: $background;
     }
     
     #main-container {
@@ -325,7 +322,7 @@ class ChatApp(App):
         dock: top;
         height: auto;
         padding: 1 2;
-        background: #000000;
+        background: $background;
     }
     
     #chat-history {
@@ -334,8 +331,8 @@ class ChatApp(App):
         overflow-y: auto;
         scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
-        scrollbar-background: #000000;
-        scrollbar-color: lavenderblush;
+        scrollbar-background: $background;
+        scrollbar-color: $primary;
     }
     
     #model-info {
@@ -343,22 +340,14 @@ class ChatApp(App):
         height: auto;
         padding: 0 2;
         background: $surface;
-        color: #666666;
+        color: $text-muted;
     }
     
     #input-area {
         dock: bottom;
         height: auto;
         padding: 1 2;
-        background: #000000;
-    }
-    
-    #model-info {
-        dock: bottom;
-        height: auto;
-        padding: 1 2;
-        background: $surface;
-        color: #aaaaaa;
+        background: $background;
     }
     
     #model-name {
@@ -374,8 +363,8 @@ class ChatApp(App):
         dock: bottom;
         height: auto;
         padding: 1 2;
-        background: #000000;
-        color: #aaaaaa;
+        background: $background;
+        color: $text-muted;
     }
     
     #spinner {
@@ -396,12 +385,12 @@ class ChatApp(App):
         width: 100%;
         min-height: 6;
         max-height: 12;
-        background: #333333;
-        border-left: thick green;
+        background: $surface;
+        border-left: thick $success;
         border-top: none;
         border-right: none;
         border-bottom: none;
-        color: white;
+        color: $text;
         padding: 1 2;
     }
     
@@ -410,7 +399,7 @@ class ChatApp(App):
     }
     
     .pending-query {
-        border-left: thick green;
+        border-left: thick $success;
         border-top: none;
         border-right: none;
         border-bottom: none;
@@ -419,60 +408,80 @@ class ChatApp(App):
     
     .user-msg {
         padding: 0 2;
-        border-left: thick green;
+        border-left: thick $success;
+        color: $text-warning;
     }
     
     .agent-msg {
         padding: 0 2;
-        border-left: thick grey;
+        border-left: solid $panel;
+        color: $text;
+    }
+    
+    .system-msg {
+        padding: 0 2;
+        color: $text-muted;
+        text-style: italic;
     }
     
     .thinking-box {
-        background: #1a1a1a;
+        background: $surface;
         margin: 1 0;
     }
     
     .thinking-box > Collapsible {
-        background: #1a1a1a;
+        background: $surface;
     }
     
     .thinking-box Collapsible {
-        border: solid #333333;
+        border: solid $panel;
         margin: 1 0;
     }
     
     .thinking-box Collapsible > .collapsible--title {
-        color: #00ff00;
+        color: $accent;
         text-style: bold;
         padding: 0 1;
     }
     
     .thinking-box Collapsible > .collapsible--title:hover {
-        background: #333333;
+        background: $primary-background;
     }
     
     .thinking-box Collapsible .collapsible--toggle {
-        color: #00ff00;
+        color: $accent;
     }
     
     .thought-text {
-        color: #888888;
+        color: $text-muted;
         padding: 0 1;
     }
     
     .result-text {
-        color: #00ffff;
+        color: $text-primary;
         padding: 0 1;
     }
     """
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+t", "open_theme_picker", "Theme"),
     ]
 
     def on_mount(self) -> None:
-        """Mount the chat screen."""
+        self._register_themes()
         self.push_screen(ChatScreen())
+
+    def _register_themes(self) -> None:
+        config = get_config()
+        saved_theme = config.theme
+        if saved_theme in BUILT_IN_THEMES:
+            self.theme = saved_theme
+        else:
+            self.theme = "nord"
+
+    def action_open_theme_picker(self) -> None:
+        self.push_screen(ThemePickerModal())
 
 
 def main():

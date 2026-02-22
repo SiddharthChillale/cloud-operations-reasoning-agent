@@ -11,6 +11,8 @@ CONFIG_DIR = Path.home() / ".config" / "cora"
 CONFIG_FILE = "config.yaml"
 REPO_CONFIG_FILE = Path(__file__).parent.parent / ".config" / "cora.yaml"
 
+DEFAULT_THEME = "nord"
+
 
 def _load_yaml_config(config_path: Path) -> dict:
     if not config_path.exists():
@@ -120,6 +122,17 @@ class Config:
             self.langfuse_secret_key is not None
             and self.langfuse_public_key is not None
         )
+
+    @property
+    def theme(self) -> str:
+        return _get_env_or_config(self._config, "theme") or DEFAULT_THEME
+
+    def save_theme(self, theme_name: str) -> None:
+        self._config["theme"] = theme_name
+        config_path = CONFIG_DIR / CONFIG_FILE
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            yaml.dump(self._config, f, default_flow_style=False)
 
 
 def get_config() -> Config:
