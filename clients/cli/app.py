@@ -1,7 +1,7 @@
 from rich.console import Console
 from rich.panel import Panel
 
-from src.agents import create_aws_agent
+from src.agents import cora_agent
 
 
 def prepend_query_with(prompt: str, query: str):
@@ -20,7 +20,7 @@ def run():
         )
     )
 
-    with create_aws_agent() as agent:
+    with cora_agent() as agent:
         while True:
             try:
                 query = console.input("\n[bold green]You:[/bold green] ")

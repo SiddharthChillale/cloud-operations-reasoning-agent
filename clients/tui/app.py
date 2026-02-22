@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from pyfiglet import figlet_format
@@ -20,12 +21,11 @@ from textual.widgets import (
     Static,
 )
 
-from src.agents import create_aws_agent
-from src.utils import setup_logger
+from src.agents import cora_agent
 
 CORPUS_ASCII = Text(figlet_format("CORA", font="slant"), style="bold green")
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ChatHistoryPanel(Static):
@@ -69,7 +69,7 @@ class ChatHistoryPanel(Static):
             widgets.append(Markdown(f"```python\n{code_action}\n```"))
 
         collapsible = Collapsible(
-            *widgets, title=header, collapsed=True, classes="thinking-box"
+            *widgets, title=header, collapsed=False, classes="thinking-box"
         )
         self.mount(collapsible)
 
@@ -129,7 +129,7 @@ class ChatScreen(Screen):
     def on_mount(self) -> None:
         """Initialize the chat when the screen mounts."""
         try:
-            self.agent = create_aws_agent()
+            self.agent = cora_agent()
             logger.info("Agent initialized successfully")
 
             chat_history = self.query_one("#chat-history", ChatHistoryPanel)

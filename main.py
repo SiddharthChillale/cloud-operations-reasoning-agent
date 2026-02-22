@@ -3,6 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from src.utils import setup_logging
+
+logger = setup_logging()
+
 import typer
 
 from langfuse import get_client
@@ -13,9 +17,9 @@ SmolagentsInstrumentor().instrument()
 langfuse = get_client()
 
 if langfuse.auth_check():
-    print("Langfuse client is authenticated and ready!")
+    logger.info("Langfuse client is authenticated and ready!")
 else:
-    print("Authentication failed. Please check your credentials and host.")
+    logger.warning("Langfuse setup failed. Please check your credentials and host.")
 
 
 def run_tui():
