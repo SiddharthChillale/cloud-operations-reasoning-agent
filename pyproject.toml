@@ -1,7 +1,7 @@
 [project]
-name = "smolagents-trial-project"
+name = "cora"
 version = "0.1.0"
-description = "Add your description here"
+description = "CORA stands for Cloud Operations Reasoning Agent. Cora helps developers and architects query their AWS architecture for resources and reason about the resource configurations."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,7 +12,6 @@ dependencies = [
     "openinference-instrumentation-smolagents>=0.1.22",
     "smolagents[telemetry]>=1.24.0",
     "textual>=8.0.0",
-    "typer>=0.24.0",
     "uvicorn>=0.24.0",
     "pyfiglet>=1.0.0",
 ]
@@ -20,4 +19,5 @@ dependencies = [
 [dependency-groups]
 dev = [
     "baml-py>=0.219.0",
+    "textual-dev>=1.8.0",
 ]
