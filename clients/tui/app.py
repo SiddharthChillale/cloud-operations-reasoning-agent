@@ -38,7 +38,7 @@ class ChatHistoryPanel(Static):
     def add_user_message(self, message: str):
         """Add a user message to the chat history."""
         widget = Static(
-            f"\nYou: {message}", classes="user-msg pending-query", markup=False
+            f"\n{message}", classes="user-msg pending-query", markup=False
         )
         widget.styles.color = "yellow"
         self.mount(widget)
@@ -47,7 +47,7 @@ class ChatHistoryPanel(Static):
 
     def add_agent_message(self, message: str):
         """Add an agent message to the chat history."""
-        widget = Static(f"\nAgent: {message}", classes="agent-msg")
+        widget = Static(f"\n{message}", classes="agent-msg")
         widget.styles.color = "aliceblue"
         self.mount(widget)
 
@@ -419,10 +419,12 @@ class ChatApp(App):
     
     .user-msg {
         padding: 0 2;
+        border-left: thick green;
     }
     
     .agent-msg {
         padding: 0 2;
+        border-left: thick grey;
     }
     
     .thinking-box {
