@@ -15,7 +15,7 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from src.agents.aws_agent import cora_agent
+            from agents.aws_agent import cora_agent
 
             agent = cora_agent()
 
@@ -35,7 +35,7 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from src.agents.aws_agent import cora_agent
+            from agents.aws_agent import cora_agent
 
             agent = cora_agent()
 
@@ -55,7 +55,7 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from src.agents.aws_agent import cora_agent
+            from agents.aws_agent import cora_agent
 
             agent = cora_agent()
 
@@ -73,7 +73,7 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from src.agents.aws_agent import cora_agent
+            from agents.aws_agent import cora_agent
             from src.tools import create_boto_client_tool
 
             tool = create_boto_client_tool()
