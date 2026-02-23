@@ -13,13 +13,12 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Button,
-    Collapsible,
     Input,
     LoadingIndicator,
-    Markdown,
     Static,
 )
 
+from clients.tui.step_widget import StepWidget
 from src.agents import cora_agent
 from src.config import get_config
 from src.session import SessionManager, MessageRole
@@ -44,9 +43,9 @@ class ChatHistoryPanel(Static):
         self.pending_query_widget = widget
         return widget
 
-    def add_agent_message(self, message: str):
+    def add_agent_message(self, message: str, message_class: str = "agent-msg"):
         """Add an agent message to the chat history."""
-        widget = Static(f"\n{message}", classes="agent-msg")
+        widget = Static(f"\n{message}", classes=message_class)
         self.mount(widget)
 
     def add_system_message(self, message: str):
@@ -58,32 +57,61 @@ class ChatHistoryPanel(Static):
     def add_thinking(
         self,
         step_number: int,
-        model_output: str,
-        code_action: str,
+        model_output: str = "",
+        code_action: str = "",
         execution_result: str = "",
     ):
-        """Add a collapsible thinking box for a step."""
-        header = f"Step #{step_number}"
+        """Add a step widget with RichLog for live terminal-style output."""
+        step_widget = StepWidget(step_number, classes="thinking-box")
+        self.mount(step_widget)
 
-        widgets = []
         if model_output:
-            widgets.append(Static(f"Thought: {model_output}", classes="thought-text"))
+            step_widget.write_thought(model_output)
         if code_action:
-            widgets.append(Markdown(f"```python\n{code_action}\n```"))
+            step_widget.write_code(code_action)
         if execution_result:
-            result_label = (
-                "Result:" if "error" not in execution_result.lower() else "Error:"
-            )
-            widgets.append(
-                Static(f"{result_label} {execution_result}", classes="result-text")
-            )
+            is_error = "error" in execution_result.lower()
+            step_widget.write_result(execution_result, is_error=is_error)
 
-        collapsible = Collapsible(
-            *widgets, title=header, collapsed=False, classes="thinking-box"
-        )
-        self.mount(collapsible)
+        return step_widget
 
-        return collapsible
+    def add_planning(self, step_number: int, plan_text: str = ""):
+        """Add a planning step widget with RichLog (expanded by default)."""
+        step_widget = StepWidget(step_number, is_planning=True, classes="thinking-box")
+        self.mount(step_widget)
+
+        if plan_text:
+            step_widget.write_plan(plan_text)
+
+        return step_widget
+
+    def stream_step_content(
+        self,
+        step_widget,
+        thought: str,
+        code: str,
+        result: str,
+        is_error: bool = False,
+    ):
+        """Stream step content line by line to an existing step widget."""
+        if thought:
+            step_widget.write_thought(thought)
+
+        if code:
+            step_widget.write_code_start()
+            for line in code.split("\n"):
+                step_widget.write_line(line + "\n")
+
+        if result:
+            step_widget.write_result_start(is_error)
+            for line in result.split("\n"):
+                step_widget.write_line(line + "\n")
+
+    def add_step(self, step_number: int):
+        """Create a new step widget for incremental updates."""
+        step_widget = StepWidget(step_number, classes="thinking-box")
+        self.mount(step_widget)
+        return step_widget
 
     def clear_pending_border(self):
         """Remove the green border from the pending query."""
@@ -225,6 +253,68 @@ class ChatScreen(Screen):
                 logger.debug(
                     f"Displayed {len(session.messages)} messages in chat history"
                 )
+
+        # Restore step widgets from agent memory steps
+        if (
+            hasattr(self, "agent")
+            and self.agent
+            and hasattr(self.agent.memory, "steps")
+        ):
+            for step in self.agent.memory.steps:
+                if isinstance(step, PlanningStep):
+                    # Handle PlanningStep
+                    plan_text = (
+                        step.plan
+                        if hasattr(step, "plan") and step.plan
+                        else "Planning..."
+                    )
+
+                    def add_planning_widget():
+                        chat_history.add_planning(0, plan_text)
+
+                    self.call_later(add_planning_widget)
+
+                elif isinstance(step, ActionStep):
+                    step_number = step.step_number
+
+                    logger.info(
+                        "model_output: "
+                        + str(step.model_output)
+                        + " type: "
+                        + str(type(step.model_output))
+                    )
+                    # Extract thought
+                    model_output = None
+                    if step.model_output:
+                        thought = step.model_output
+                        if isinstance(thought, str):
+                            model_output = thought
+                        elif isinstance(thought, dict):
+                            model_output = (
+                                thought.get("thought")
+                                or thought.get("text")
+                                or str(thought)
+                            )
+                        else:
+                            model_output = str(thought)
+
+                    code_action = step.code_action or ""
+                    execution_result = step.observations or ""
+
+                    # Create step widget (collapsed by default for historical steps)
+                    def add_step_widget():
+                        step_widget = chat_history.add_thinking(
+                            step_number,
+                            model_output or "",
+                            code_action,
+                            execution_result,
+                        )
+                        # Collapse historical steps
+                        if step_widget:
+                            step_widget.collapse()
+
+                    self.call_later(add_step_widget)
+
         else:
             logger.debug("No messages to display")
 
@@ -521,34 +611,120 @@ Any other command starting with / will be sent to the AI agent.
                     break
 
                 if isinstance(step, PlanningStep):
+                    plan_text = (
+                        step.plan
+                        if hasattr(step, "plan") and step.plan
+                        else "Planning..."
+                    )
+
+                    # Create planning step widget (expanded by default)
+                    # Use 0 for planning steps since they don't have step_number
+                    def add_planning():
+                        chat_history.add_planning(0, plan_text)
+                        self.screen.refresh()
+
+                    self.call_later(add_planning)
                     continue
 
                 elif isinstance(step, ActionStep):
                     step_number = step.step_number
 
+                    # Extract thought from model_output
                     model_output = None
                     if step.model_output:
                         thought = step.model_output
                         if isinstance(thought, str):
+                            # Try to parse as JSON in case it's a JSON string
+                            import json
+
+                            try:
+                                parsed = json.loads(thought)
+                                if isinstance(parsed, dict):
+                                    thought = (
+                                        parsed.get("thought")
+                                        or parsed.get("text")
+                                        or parsed.get("reasoning")
+                                        or thought
+                                    )
+                            except (json.JSONDecodeError, TypeError):
+                                pass  # Not JSON, use as-is
                             model_output = thought
+                        elif isinstance(thought, dict):
+                            model_output = (
+                                thought.get("thought")
+                                or thought.get("text")
+                                or thought.get("reasoning")
+                                or str(thought)
+                            )
                         else:
                             model_output = str(thought)
 
                     code_action = step.code_action
                     execution_result = step.observations if step.observations else None
+                    is_error = bool(
+                        execution_result and "error" in execution_result.lower()
+                    )
+
+                    current_step_widget = None
 
                     if model_output or code_action or execution_result:
-
+                        # Create step widget with thought first
                         def add_thinking():
-                            chat_history.add_thinking(
+                            nonlocal current_step_widget
+                            current_step_widget = chat_history.add_thinking(
                                 step_number,
                                 model_output or "",
-                                code_action or "",
-                                execution_result or "",
+                                "",
+                                "",
                             )
                             self.screen.refresh()
 
                         self.call_later(add_thinking)
+
+                        # Write code with syntax highlighting first (for proper highlighting)
+                        if code_action:
+
+                            def write_code(code=code_action):
+                                if current_step_widget and code:
+                                    current_step_widget.write_code(code)
+
+                            self.call_later(write_code)
+
+                        # Stream result line by line with 10ms delay
+                        if execution_result:
+                            result_lines = execution_result.split("\n")
+                            for i, line in enumerate(result_lines):
+
+                                def write_result_line(
+                                    line=line, is_last=(i == len(result_lines) - 1)
+                                ):
+                                    if current_step_widget:
+                                        if i == 0:
+                                            current_step_widget.write_result_start(
+                                                is_error
+                                            )
+                                        current_step_widget.write_line(line + "\n")
+                                        if is_last:
+                                            current_step_widget.collapse()
+
+                                self.call_later(write_result_line)
+                                await asyncio.sleep(0.01)
+                        elif code_action:
+                            # Collapse after code if no result
+                            def collapse_after_code():
+                                if current_step_widget:
+                                    current_step_widget.collapse()
+
+                            self.call_later(collapse_after_code)
+
+                        # If no code or result, just collapse after thought
+                        if not code_action and not execution_result:
+
+                            def collapse_after_thought():
+                                if current_step_widget:
+                                    current_step_widget.collapse()
+
+                            self.call_later(collapse_after_thought)
 
                         # Save step to database - works even if session not active
                         session = self.session_manager.get_current_session()
@@ -580,7 +756,10 @@ Any other command starting with / will be sent to the AI agent.
                     await self._update_token_counts()
 
                     def finish():
-                        chat_history.add_agent_message(str(answer_text))
+                        chat_history.add_agent_message(
+                            "Final Answer:\n" + str(answer_text),
+                            message_class="final-answer",
+                        )
                         self.screen.refresh()
 
                     self.call_later(finish)
@@ -782,6 +961,17 @@ class ChatApp(App):
         color: $text;
     }
     
+    .final-answer {
+        padding: 0 2;
+        border-left: thick $accent;
+        color: $text;
+    }
+    
+    .final-answer-label {
+        color: $accent;
+        text-style: bold;
+    }
+    
     .system-msg {
         padding: 0 2;
         color: $text-muted;
@@ -793,37 +983,24 @@ class ChatApp(App):
         margin: 1 0;
     }
     
-    .thinking-box > Collapsible {
-        background: $surface;
+    .step-header {
+        height: auto;
+        padding: 0 1;
     }
     
-    .thinking-box Collapsible {
-        border: solid $panel;
-        margin: 1 0;
-    }
-    
-    .thinking-box Collapsible > .collapsible--title {
+    .step-title {
         color: $accent;
         text-style: bold;
-        padding: 0 1;
+        width: auto;
     }
     
-    .thinking-box Collapsible > .collapsible--title:hover {
-        background: $primary-background;
+    .expand-btn {
+        min-width: 3;
     }
     
-    .thinking-box Collapsible .collapsible--toggle {
-        color: $accent;
-    }
-    
-    .thought-text {
-        color: $text-muted;
-        padding: 0 1;
-    }
-    
-    .result-text {
-        color: $text-primary;
-        padding: 0 1;
+    .step-log-container {
+        border: solid $panel;
+        margin: 1 0;
     }
     """
 
