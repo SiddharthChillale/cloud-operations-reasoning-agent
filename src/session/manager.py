@@ -122,3 +122,26 @@ class SessionManager:
                 else None
             )
         return None
+
+    async def save_metrics(
+        self,
+        session_id: int,
+        model_id: str,
+        provider: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        await self.db.save_session_metrics(
+            session_id, model_id, provider, input_tokens, output_tokens
+        )
+        logger.debug(
+            f"Saved metrics for session {session_id}: {input_tokens} in, {output_tokens} out"
+        )
+
+    async def get_metrics(self, session_id: int) -> dict | None:
+        return await self.db.get_session_metrics(session_id)
+
+    async def get_current_metrics(self) -> dict | None:
+        if self._current_session and self._current_session.id:
+            return await self.get_metrics(self._current_session.id)
+        return None

@@ -56,6 +56,8 @@ class SessionDatabase:
 
             await db.commit()
 
+        await self.init_session_metrics()
+
     async def create_session(self, title: str = "New Session") -> Session:
         if not title:
             title = "New Session"
@@ -214,5 +216,82 @@ class SessionDatabase:
     async def delete_session(self, session_id: int) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            await db.execute(
+                "DELETE FROM session_metrics WHERE session_id = ?", (session_id,)
+            )
             await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             await db.commit()
+
+    async def init_session_metrics(self) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS session_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL UNIQUE,
+                    model_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                )
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_session_metrics_session_id ON session_metrics(session_id)"
+            )
+            await db.commit()
+
+    async def save_session_metrics(
+        self,
+        session_id: int,
+        model_id: str,
+        provider: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        now = datetime.now().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Use INSERT...ON CONFLICT to atomically handle existing or new records
+            await db.execute(
+                """
+                INSERT INTO session_metrics (session_id, model_id, provider, input_tokens, output_tokens, total_tokens, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    input_tokens = session_metrics.input_tokens + excluded.input_tokens,
+                    output_tokens = session_metrics.output_tokens + excluded.output_tokens,
+                    total_tokens = session_metrics.input_tokens + session_metrics.output_tokens + excluded.input_tokens + excluded.output_tokens,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    session_id,
+                    model_id,
+                    provider,
+                    input_tokens,
+                    output_tokens,
+                    input_tokens + output_tokens,
+                    now,
+                ),
+            )
+            await db.commit()
+
+    async def get_session_metrics(self, session_id: int) -> dict | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM session_metrics WHERE session_id = ?", (session_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                return {
+                    "session_id": row["session_id"],
+                    "model_id": row["model_id"],
+                    "provider": row["provider"],
+                    "input_tokens": row["input_tokens"],
+                    "output_tokens": row["output_tokens"],
+                    "total_tokens": row["total_tokens"],
+                    "updated_at": row["updated_at"],
+                }

@@ -19,7 +19,7 @@ def cora_agent() -> CodeAgent:
     model = create_model()
 
     tools = [create_boto_client_tool()]
-    additional_authorized_imports = ["botocore.exceptions"]
+    additional_authorized_imports = ["botocore.exceptions", "json"]
     if not config.has_aws_profile():
         additional_authorized_imports.extend(["boto3", "botocore"])  
         tools.pop(0)
@@ -29,6 +29,7 @@ def cora_agent() -> CodeAgent:
         model=model,
         planning_interval=5,
         prompt_templates=AWS_AGENT_SYSTEM_PROMPT,
+        instructions="""All resources are in us-east-2 region unless specified otherwise""",
         use_structured_outputs_internally=True,
         stream_outputs=True,
         additional_authorized_imports=additional_authorized_imports,

@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pyfiglet import figlet_format
 from rich.align import Align
 from rich.text import Text
-from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
+from smolagents.memory import ActionStep, PlanningStep
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -128,6 +128,10 @@ class ChatScreen(Screen):
 
             with Horizontal(id="status-bar"):
                 yield LoadingIndicator(id="spinner")
+                yield Static("", id="model-id")
+                yield Static("", id="provider")
+                yield Static("In: 0", id="input-tokens")
+                yield Static("Out: 0", id="output-tokens")
                 yield Static(
                     Text(
                         "/new /sessions /help /theme /quit",
@@ -142,6 +146,13 @@ class ChatScreen(Screen):
             chat_history = self.query_one("#chat-history", ChatHistoryPanel)
             query_input = self.query_one("#query-input", Input)
             query_input.focus()
+
+            # Set status bar model info
+            config = get_config()
+            model_id = self.query_one("#model-id", Static)
+            provider = self.query_one("#provider", Static)
+            model_id.update(config.llm_model_id)
+            provider.update(config.llm_provider)
 
             # Reload session data and display chat history
             self.run_worker(self._load_session_and_history(), exclusive=False)
@@ -163,6 +174,37 @@ class ChatScreen(Screen):
                 session = fresh_session
                 logger.debug(
                     f"Reloaded session {session.id} with {len(session.messages)} messages"
+                )
+
+            # Load agent memory steps from DB
+            saved_steps = await self.session_manager.get_agent_steps(session.id)
+            if saved_steps:
+                import pickle
+
+                try:
+                    self.agent.memory.steps = pickle.loads(saved_steps)
+                    logger.info(
+                        f"Restored {len(self.agent.memory.steps)} steps for session {session.id}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not restore agent steps: {e}")
+
+            # Load cumulative token counts from DB
+            metrics = await self.session_manager.get_metrics(session.id)
+            if metrics:
+
+                def update_tokens():
+                    try:
+                        input_widget = self.query_one("#input-tokens", Static)
+                        output_widget = self.query_one("#output-tokens", Static)
+                        input_widget.update(f"In: {metrics.get('input_tokens', 0)}")
+                        output_widget.update(f"Out: {metrics.get('output_tokens', 0)}")
+                    except Exception:
+                        pass
+
+                self.call_later(update_tokens)
+                logger.info(
+                    f"Loaded cumulative tokens: in={metrics.get('input_tokens', 0)}, out={metrics.get('output_tokens', 0)}"
                 )
 
         # Load chat history
@@ -405,11 +447,50 @@ Any other command starting with / will be sent to the AI agent.
         except Exception as e:
             logger.warning(f"Could not save agent step: {e}")
 
+    async def _update_token_counts(self) -> None:
+        """Get token counts from agent monitor and update status bar."""
+        try:
+            token_counts = self.agent.monitor.get_total_token_counts()
+            input_tokens = token_counts.input_tokens
+            output_tokens = token_counts.output_tokens
+
+            def update_ui():
+                try:
+                    input_widget = self.query_one("#input-tokens", Static)
+                    output_widget = self.query_one("#output-tokens", Static)
+                    input_widget.update(f"In: {input_tokens}")
+                    output_widget.update(f"Out: {output_tokens}")
+                except Exception:
+                    pass
+
+            self.call_later(update_ui)
+
+            session = self.session_manager.get_current_session()
+            if session and session.id:
+                asyncio.create_task(
+                    self.session_manager.save_metrics(
+                        session.id,
+                        get_config().llm_model_id,
+                        get_config().llm_provider,
+                        input_tokens,
+                        output_tokens,
+                    )
+                )
+        except Exception as e:
+            logger.debug(f"Could not get token counts: {e}")
+
     async def _run_agent(self, query: str) -> None:
         """Run the agent query in a worker thread with streaming."""
         chat_history = self.query_one("#chat-history", ChatHistoryPanel)
         spinner = self.query_one("#spinner")
         query_time = self.query_one("#query-time", Static)
+
+        # Log agent memory state before running
+        logger.info("=== AGENT MEMORY BEFORE RUN ===")
+        logger.info(f"Memory steps count: {len(self.agent.memory.steps)}")
+        for i, step in enumerate(self.agent.memory.steps):
+            logger.info(f"  Step {i}: {type(step).__name__}")
+        logger.info("===============================")
 
         try:
             import time
@@ -483,21 +564,73 @@ Any other command starting with / will be sent to the AI agent.
                                 self._save_agent_step(session.id, content)
                             )
 
-                elif isinstance(step, FinalAnswerStep):
-                    # Save final answer to database before displaying - works even if session not active
+                # Handle final answer - check is_final_answer attribute first
+                # This handles both ActionStep with is_final_answer=True and FinalAnswerStep
+                if hasattr(step, "is_final_answer") and step.is_final_answer:
+                    # Use action_output if available (ActionStep), otherwise output (FinalAnswerStep)
+                    answer_text = getattr(step, "action_output", None) or getattr(
+                        step, "output", ""
+                    )
                     session = self.session_manager.get_current_session()
                     if session and session.id:
-                        answer_content = f"Final Answer:\n{step.output}"
+                        answer_content = f"Final Answer:\n{answer_text}"
                         asyncio.create_task(
                             self._save_agent_step(session.id, answer_content)
                         )
 
+                    # Update token counts after final answer
+                    await self._update_token_counts()
+
                     def finish():
-                        chat_history.add_agent_message(str(step.output))
+                        chat_history.add_agent_message(str(answer_text))
                         self.screen.refresh()
 
                     self.call_later(finish)
                     break
+
+                elif isinstance(step, ActionStep):
+                    step_number = step.step_number
+
+                    model_output = None
+                    if step.model_output:
+                        thought = step.model_output
+                        if isinstance(thought, str):
+                            model_output = thought
+                        else:
+                            model_output = str(thought)
+
+                    code_action = step.code_action
+                    execution_result = step.observations if step.observations else None
+
+                    if model_output or code_action or execution_result:
+
+                        def add_thinking():
+                            chat_history.add_thinking(
+                                step_number,
+                                model_output or "",
+                                code_action or "",
+                                execution_result or "",
+                            )
+                            self.screen.refresh()
+
+                        self.call_later(add_thinking)
+
+                        # Save step to database - works even if session not active
+                        session = self.session_manager.get_current_session()
+                        if session and session.id:
+                            content = f"Step {step_number}"
+                            if model_output:
+                                content += f"\n{model_output}"
+                            if code_action:
+                                content += f"\nCode: {code_action}"
+                            if execution_result:
+                                content += f"\nResult: {execution_result}"
+                            asyncio.create_task(
+                                self._save_agent_step(session.id, content)
+                            )
+
+                # Update token counts after each step
+                await self._update_token_counts()
 
                 await asyncio.sleep(0)
 
@@ -524,6 +657,27 @@ Any other command starting with / will be sent to the AI agent.
 
             self.call_later(show_error)
         finally:
+            # Log agent memory state after running
+            logger.info("=== AGENT MEMORY AFTER RUN ===")
+            logger.info(f"Memory steps count: {len(self.agent.memory.steps)}")
+            for i, step in enumerate(self.agent.memory.steps):
+                logger.info(f"  Step {i}: {type(step).__name__}")
+            logger.info("===============================")
+
+            # Save agent memory to DB
+            session = self.session_manager.get_current_session()
+            if session and session.id:
+                import pickle
+
+                try:
+                    agent_steps = pickle.dumps(self.agent.memory.steps)
+                    await self.session_manager.save_agent_steps(session.id, agent_steps)
+                    logger.info(
+                        f"Saved {len(self.agent.memory.steps)} steps to session {session.id}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not save agent steps: {e}")
+
             self._agent_running = False
 
             def hide_spinner():
@@ -597,6 +751,29 @@ class ChatApp(App):
         color: $text-muted;
     }
     
+    #model-id, #provider, #input-tokens, #output-tokens {
+        width: auto;
+    }
+    
+    #model-id {
+        color: $accent;
+        padding-right: 1;
+    }
+    
+    #provider {
+        color: $text-muted;
+        padding-right: 1;
+    }
+    
+    #input-tokens {
+        color: $success;
+        padding-right: 1;
+    }
+    
+    #output-tokens {
+        color: $warning;
+    }
+    
     #spinner {
         width: 20;
         display: none;
@@ -607,7 +784,7 @@ class ChatApp(App):
     }
     
     #exit-hint {
-        width: 100%;
+        width: 1fr;
         text-align: right;
     }
     
@@ -747,6 +924,14 @@ class ChatApp(App):
         await self.session_manager.load_sessions()
         self.executor.shutdown(wait=False)
 
+    def _register_themes(self) -> None:
+        config = get_config()
+        saved_theme = config.theme
+        if saved_theme in BUILT_IN_THEMES:
+            self.theme = saved_theme
+        else:
+            self.theme = "nord"
+
     async def switch_to_session(self, session_id: int) -> None:
         if self._current_session_id and self.agent:
             import pickle
@@ -779,14 +964,6 @@ class ChatApp(App):
         session = self.session_manager.get_current_session()
         if session and session.id:
             self._current_session_id = session.id
-
-    def _register_themes(self) -> None:
-        config = get_config()
-        saved_theme = config.theme
-        if saved_theme in BUILT_IN_THEMES:
-            self.theme = saved_theme
-        else:
-            self.theme = "nord"
 
 
 def main():
