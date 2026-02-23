@@ -18,9 +18,11 @@ def cora_agent() -> CodeAgent:
     config = get_config()
     model = create_model()
 
-    tools = []
-    if config.has_aws_profile():
-        tools.append(create_boto_client_tool())
+    tools = [create_boto_client_tool()]
+    additional_authorized_imports = ["botocore.exceptions"]
+    if not config.has_aws_profile():
+        additional_authorized_imports.extend(["boto3", "botocore"])  
+        tools.pop(0)
 
     agent = CodeAgent(
         tools=tools,
@@ -29,6 +31,6 @@ def cora_agent() -> CodeAgent:
         prompt_templates=AWS_AGENT_SYSTEM_PROMPT,
         use_structured_outputs_internally=True,
         stream_outputs=True,
-        additional_authorized_imports=["botocore.exceptions"],
+        additional_authorized_imports=additional_authorized_imports,
     )
     return agent

@@ -22,8 +22,8 @@ from textual.widgets import (
 
 from src.agents import cora_agent
 from src.config import get_config
+from src.session import SessionManager, MessageRole
 from src.themes import BUILT_IN_THEMES
-from clients.tui.theme_picker import ThemePickerModal
 
 CORPUS_ASCII = Text(figlet_format("CORA", font="slant"), style="bold green")
 
@@ -99,16 +99,13 @@ class ChatScreen(Screen):
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
-    def __init__(self):
+    def __init__(self, session_manager: SessionManager, agent):
         super().__init__()
-        self.agent = None
-        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.session_manager = session_manager
+        self.agent = agent
         self.show_welcome = True
         self._agent_running = False
-
-    def on_unmount(self) -> None:
-        """Clean up executor when screen unmounts."""
-        self.executor.shutdown(wait=False)
+        self._first_query_sent = False
 
     def compose(self) -> ComposeResult:
         """Compose the layout."""
@@ -126,30 +123,72 @@ class ChatScreen(Screen):
                 yield Static("", id="query-time")
 
             with Horizontal(id="input-area"):
-                yield Input("Type your query...", id="query-input")
+                yield Input("", id="query-input")
                 yield Button("⏎", id="send-btn", variant="primary")
 
             with Horizontal(id="status-bar"):
                 yield LoadingIndicator(id="spinner")
                 yield Static(
-                    Text("ctrl+c quit | ctrl+t theme", style="$text-muted"),
+                    Text(
+                        "/new /sessions /help /theme /quit",
+                        style="$text-muted",
+                    ),
                     id="exit-hint",
                 )
 
     def on_mount(self) -> None:
         """Initialize the chat when the screen mounts."""
         try:
-            self.agent = cora_agent()
-            logger.info("Agent initialized successfully")
-
             chat_history = self.query_one("#chat-history", ChatHistoryPanel)
-
             query_input = self.query_one("#query-input", Input)
             query_input.focus()
+
+            # Reload session data and display chat history
+            self.run_worker(self._load_session_and_history(), exclusive=False)
+
         except Exception as e:
-            logger.exception("Failed to initialize agent")
+            logger.exception("Failed to initialize chat screen")
             chat_history = self.query_one("#chat-history", ChatHistoryPanel)
-            chat_history.add_system_message(f"Failed to initialize agent: {str(e)}")
+            chat_history.add_system_message(f" {str(e)}")
+
+    async def _load_session_and_history(self) -> None:
+        """Load session from DB and display chat history."""
+        session = self.session_manager.get_current_session()
+
+        if session and session.id:
+            # Reload session from DB to get latest messages
+            fresh_session = await self.session_manager.get_session(session.id)
+            if fresh_session:
+                self.session_manager._current_session = fresh_session
+                session = fresh_session
+                logger.debug(
+                    f"Reloaded session {session.id} with {len(session.messages)} messages"
+                )
+
+        # Load chat history
+        chat_history = self.query_one("#chat-history", ChatHistoryPanel)
+        chat_history.remove_children()
+
+        if session and session.messages:
+            for msg in session.messages:
+                if msg.role == MessageRole.USER:
+                    chat_history.add_user_message(msg.content)
+                elif msg.role == MessageRole.AGENT:
+                    chat_history.add_agent_message(msg.content)
+                elif msg.role == MessageRole.SYSTEM:
+                    chat_history.add_system_message(msg.content)
+            if session.messages:
+                self.show_welcome = False
+                self.call_later(self._hide_welcome)
+                logger.debug(
+                    f"Displayed {len(session.messages)} messages in chat history"
+                )
+        else:
+            logger.debug("No messages to display")
+
+        if self._agent_running:
+            spinner = self.query_one("#spinner")
+            spinner.display = True
 
     @on(Input.Submitted, "#query-input")
     def _handle_input_submit(self, event: Input.Submitted) -> None:
@@ -180,16 +219,60 @@ class ChatScreen(Screen):
         """Process the user's query."""
         query_input = self.query_one("#query-input", Input)
         chat_history = self.query_one("#chat-history", ChatHistoryPanel)
-        spinner = self.query_one("#spinner")
 
         query = query_input.value.strip()
 
         if not query:
             return
 
-        chat_history.add_user_message(query)
         query_input.value = ""
 
+        if query.startswith("/"):
+            self._handle_slash_command(query, chat_history)
+            return
+
+        if not self._first_query_sent:
+            self._first_query_sent = True
+            title = query[:50] + "..." if len(query) > 50 else query
+            session = self.session_manager.get_current_session()
+            if session and session.id:
+                # Update locally immediately for display
+                session.title = title
+                # Also save to DB synchronously (await directly)
+                import asyncio
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If we're in an async context, create a task
+                        asyncio.create_task(
+                            self._update_session_title(session.id, title)
+                        )
+                    else:
+                        # Run synchronously if possible
+                        loop.run_until_complete(
+                            self._update_session_title(session.id, title)
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not update session title: {e}")
+
+        chat_history.add_user_message(query)
+
+        session = self.session_manager.get_current_session()
+        if session and session.id:
+            # Save message to DB synchronously
+            import asyncio
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self._add_user_message(session.id, query))
+                else:
+                    loop.run_until_complete(self._add_user_message(session.id, query))
+            except Exception as e:
+                logger.warning(f"Could not save user message: {e}")
+
+        spinner = self.query_one("#spinner")
         spinner.display = True
 
         self._agent_running = True
@@ -197,6 +280,130 @@ class ChatScreen(Screen):
             self._run_agent(query),
             exclusive=True,
         )
+
+    def _handle_slash_command(self, query: str, chat_history: ChatHistoryPanel) -> None:
+        """Handle slash commands."""
+        parts = query.split(None, 1)
+        command = parts[0].lower()
+
+        if command == "/new":
+            chat_history.add_system_message("Creating new session...")
+            self.app.call_later(self._create_new_session)
+        elif command == "/sessions":
+            chat_history.add_system_message("Opening session picker...")
+            self.app.call_later(self._open_session_picker)
+        elif command == "/theme":
+            chat_history.add_system_message("Opening theme picker...")
+            self.app.call_later(self._open_theme_picker)
+        elif command == "/quit":
+            chat_history.add_system_message("Quitting...")
+            self.app.call_later(self.app.exit)
+        elif command == "/help":
+            help_text = """
+Available commands:
+/new      - Create a new session
+/sessions - Open session picker
+/theme    - Open theme picker
+/quit     - Quit the application
+/help     - Show this help message
+/debug    - Show debug info (session state, agent state)
+
+Any other command starting with / will be sent to the AI agent.
+"""
+            chat_history.add_system_message(help_text.strip())
+        elif command == "/debug":
+            self._show_debug_info(chat_history)
+        else:
+            chat_history.add_user_message(query)
+            self._send_to_agent(query, chat_history)
+
+    async def _create_new_session(self) -> None:
+        await self.session_manager.create_session()
+        from clients.tui.app import ChatScreen
+
+        self.app.pop_screen()
+        self.app.push_screen(ChatScreen(self.session_manager, self.app.agent))
+
+    def _open_session_picker(self) -> None:
+        from clients.tui.session_picker import SessionPickerModal
+
+        self.app.push_screen(SessionPickerModal(self.session_manager))
+
+    def _open_theme_picker(self) -> None:
+        from clients.tui.theme_picker import ThemePickerModal
+
+        self.app.push_screen(ThemePickerModal())
+
+    def _show_debug_info(self, chat_history: ChatHistoryPanel) -> None:
+        """Show debug info about current session state."""
+        session = self.session_manager.get_current_session()
+
+        debug_lines = ["=== DEBUG INFO ==="]
+
+        debug_lines.append(f"Current session: {session.id if session else 'None'}")
+        debug_lines.append(f"Current title: {session.title if session else 'N/A'}")
+        debug_lines.append(f"Messages count: {len(session.messages) if session else 0}")
+        debug_lines.append(f"Agent running: {self._agent_running}")
+
+        if self.agent:
+            debug_lines.append(f"Agent memory steps: {len(self.agent.memory.steps)}")
+        else:
+            debug_lines.append("Agent: None")
+
+        debug_lines.append("")
+        debug_lines.append("All sessions:")
+        all_sessions = self.session_manager.get_all_sessions()
+        for s in all_sessions:
+            debug_lines.append(f"  [{s.id}] {s.title} (active: {s.is_active})")
+
+        debug_lines.append("=================")
+
+        chat_history.add_system_message("\n".join(debug_lines))
+
+        logger.debug(
+            f"Debug info: session={session.id if session else 'None'}, "
+            f"title={session.title if session else 'N/A'}, "
+            f"messages={len(session.messages) if session else 0}, "
+            f"agent_running={self._agent_running}, "
+            f"memory_steps={len(self.agent.memory.steps) if self.agent else 0}"
+        )
+
+    def _send_to_agent(self, query: str, chat_history: ChatHistoryPanel) -> None:
+        """Send query to agent (for unrecognized slash commands)."""
+        spinner = self.query_one("#spinner")
+        spinner.display = True
+
+        session = self.session_manager.get_current_session()
+        if session and session.id:
+            self.run_worker(
+                self._add_user_message(session.id, query),
+                exclusive=False,
+            )
+
+        self._agent_running = True
+        self.run_worker(
+            self._run_agent(query),
+            exclusive=True,
+        )
+
+    async def _update_session_title(self, session_id: int, title: str) -> None:
+        await self.session_manager.update_session_title(session_id, title)
+
+    async def _add_user_message(self, session_id: int, content: str) -> None:
+        await self.session_manager.add_message(MessageRole.USER, content)
+
+    async def _add_agent_message(self, session_id: int, content: str) -> None:
+        await self.session_manager.add_message(MessageRole.AGENT, content)
+
+    async def _save_agent_step(self, session_id: int, content: str) -> None:
+        """Save agent step to database - works even if session not active."""
+        try:
+            await self.app.session_manager.add_message(
+                MessageRole.AGENT, content, session_id
+            )
+            logger.debug(f"Saved agent step to session {session_id}")
+        except Exception as e:
+            logger.warning(f"Could not save agent step: {e}")
 
     async def _run_agent(self, query: str) -> None:
         """Run the agent query in a worker thread with streaming."""
@@ -214,7 +421,7 @@ class ChatScreen(Screen):
                 return self.agent.run(query, stream=True)
 
             loop = asyncio.get_event_loop()
-            stream_gen = await loop.run_in_executor(self.executor, stream_agent)
+            stream_gen = await loop.run_in_executor(self.app.executor, stream_agent)
 
             def get_next_step():
                 """Get next step from generator in thread."""
@@ -227,7 +434,7 @@ class ChatScreen(Screen):
                     return None
 
             while self._agent_running:
-                step = await loop.run_in_executor(self.executor, get_next_step)
+                step = await loop.run_in_executor(self.app.executor, get_next_step)
 
                 if step is None:
                     break
@@ -262,7 +469,28 @@ class ChatScreen(Screen):
 
                         self.call_later(add_thinking)
 
+                        # Save step to database - works even if session not active
+                        session = self.session_manager.get_current_session()
+                        if session and session.id:
+                            content = f"Step {step_number}"
+                            if model_output:
+                                content += f"\n{model_output}"
+                            if code_action:
+                                content += f"\nCode: {code_action}"
+                            if execution_result:
+                                content += f"\nResult: {execution_result}"
+                            asyncio.create_task(
+                                self._save_agent_step(session.id, content)
+                            )
+
                 elif isinstance(step, FinalAnswerStep):
+                    # Save final answer to database before displaying - works even if session not active
+                    session = self.session_manager.get_current_session()
+                    if session and session.id:
+                        answer_content = f"Final Answer:\n{step.output}"
+                        asyncio.create_task(
+                            self._save_agent_step(session.id, answer_content)
+                        )
 
                     def finish():
                         chat_history.add_agent_message(str(step.output))
@@ -286,11 +514,13 @@ class ChatScreen(Screen):
 
             self.call_later(update_time)
 
-        except Exception as e:
+        except Exception as exc:
             logger.exception(f"Error processing query: {query}")
 
+            error_msg = str(exc)
+
             def show_error():
-                chat_history.add_system_message(f"Error: {str(e)}")
+                chat_history.add_system_message(f"Error: {error_msg}")
 
             self.call_later(show_error)
         finally:
@@ -465,12 +695,90 @@ class ChatApp(App):
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit"),
-        Binding("ctrl+t", "open_theme_picker", "Theme"),
     ]
 
-    def on_mount(self) -> None:
+    def __init__(self):
+        super().__init__()
+        self.session_manager: SessionManager = SessionManager()
+        self.agent = None
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self._current_session_id: int | None = None
+
+    async def on_mount(self) -> None:
         self._register_themes()
-        self.push_screen(ChatScreen())
+        await self.session_manager.initialize()
+        # Always create a new session on app startup
+        await self.session_manager.create_session()
+        self.agent = cora_agent()
+        logger.info("Agent initialized successfully")
+
+        session = self.session_manager.get_current_session()
+        if session and session.id:
+            self._current_session_id = session.id
+            saved_steps = await self.session_manager.get_agent_steps(session.id)
+            if saved_steps:
+                import pickle
+
+                try:
+                    self.agent.memory.steps = pickle.loads(saved_steps)
+                    logger.info(
+                        f"Restored {len(self.agent.memory.steps)} steps from session {session.id}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not restore agent steps: {e}")
+
+        self.push_screen(ChatScreen(self.session_manager, self.agent))
+
+    async def on_shutdown(self) -> None:
+        logger.info("Saving sessions before shutdown")
+        if self.agent and self._current_session_id:
+            import pickle
+
+            try:
+                agent_steps = pickle.dumps(self.agent.memory.steps)
+                await self.session_manager.save_agent_steps(
+                    self._current_session_id, agent_steps
+                )
+                logger.info(
+                    f"Saved {len(self.agent.memory.steps)} steps for session {self._current_session_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not save agent steps: {e}")
+        await self.session_manager.load_sessions()
+        self.executor.shutdown(wait=False)
+
+    async def switch_to_session(self, session_id: int) -> None:
+        if self._current_session_id and self.agent:
+            import pickle
+
+            try:
+                agent_steps = pickle.dumps(self.agent.memory.steps)
+                await self.session_manager.save_agent_steps(
+                    self._current_session_id, agent_steps
+                )
+                logger.info(
+                    f"Saved {len(self.agent.memory.steps)} steps when switching from session {self._current_session_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not save agent steps: {e}")
+
+        await self.session_manager.switch_session(session_id)
+        self._current_session_id = session_id
+
+        if self.agent:
+            saved_steps = await self.session_manager.get_agent_steps(session_id)
+            if saved_steps:
+                try:
+                    self.agent.memory.steps = pickle.loads(saved_steps)
+                    logger.info(
+                        f"Restored {len(self.agent.memory.steps)} steps for session {session_id}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not restore agent steps: {e}")
+
+        session = self.session_manager.get_current_session()
+        if session and session.id:
+            self._current_session_id = session.id
 
     def _register_themes(self) -> None:
         config = get_config()
@@ -479,9 +787,6 @@ class ChatApp(App):
             self.theme = saved_theme
         else:
             self.theme = "nord"
-
-    def action_open_theme_picker(self) -> None:
-        self.push_screen(ThemePickerModal())
 
 
 def main():

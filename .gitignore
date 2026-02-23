@@ -15,4 +15,5 @@ wheels/
 
 client/node_modules/
 
+*.logs
 *.log

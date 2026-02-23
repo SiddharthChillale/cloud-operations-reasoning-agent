@@ -1,0 +1,58 @@
+# Cora Configuration Sample File
+# Copy this to ~/.config/cora/config.yaml or .config/cora.yaml in project root
+
+# AWS Configuration (optional - only needed if using AWS tools)
+# Can also be set via AWS_PROFILE environment variable
+# aws_profile: "your-aws-profile"
+
+# LLM Configuration
+llm:
+  # Provider: openrouter, huggingface, anthropic, or custom
+  # Can also be set via LLM_PROVIDER environment variable
+  provider: "openrouter"
+
+  # Model ID (provider-specific)
+  # Can also be set via LLM_MODEL_ID environment variable
+  model_id: "qwen/qwen3-coder"
+
+  # Optional: Override API base URL for custom endpoints
+  # Can also be set via LLM_API_BASE environment variable
+  # api_base: "https://api.openrouter.ai/v1"
+
+  # API Key - environment variable depends on provider:
+  #   - openrouter: OPENROUTER_KEY
+  #   - huggingface: HF_TOKEN
+  #   - anthropic: ANTHROPIC_KEY
+  #   - custom: LLM_API_KEY
+  # Can also be set via the appropriate environment variable
+  # api_key: "your-api-key"
+
+# Langfuse Observability (optional)
+# If all three are provided, Langfuse tracing will be enabled
+# langfuse:
+#   secret_key: "your-langfuse-secret-key"
+#   public_key: "your-langfuse-public-key"
+#   base_url: "https://cloud.langfuse.com"  # or your self-hosted URL
+
+# UI Theme (optional)
+# Available themes: nord (default), dark, light, etc.
+# theme: "nord"
+
+# Schema Reference:
+# -------------
+# Top-level keys:
+#   - aws_profile: string (optional)
+#   - llm: object (optional)
+#   - langfuse: object (optional)
+#   - theme: string (optional)
+#
+# llm object:
+#   - provider: string ("openrouter"|"huggingface"|"anthropic"|"custom")
+#   - model_id: string
+#   - api_base: string (optional)
+#   - api_key: string (optional)
+#
+# langfuse object:
+#   - secret_key: string
+#   - public_key: string
+#   - base_url: string
