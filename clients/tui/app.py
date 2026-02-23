@@ -564,9 +564,7 @@ Any other command starting with / will be sent to the AI agent.
                                 self._save_agent_step(session.id, content)
                             )
 
-                # Handle final answer - check is_final_answer attribute first
-                # This handles both ActionStep with is_final_answer=True and FinalAnswerStep
-                if hasattr(step, "is_final_answer") and step.is_final_answer:
+                elif hasattr(step, "is_final_answer") and step.is_final_answer:
                     # Use action_output if available (ActionStep), otherwise output (FinalAnswerStep)
                     answer_text = getattr(step, "action_output", None) or getattr(
                         step, "output", ""
@@ -587,47 +585,6 @@ Any other command starting with / will be sent to the AI agent.
 
                     self.call_later(finish)
                     break
-
-                elif isinstance(step, ActionStep):
-                    step_number = step.step_number
-
-                    model_output = None
-                    if step.model_output:
-                        thought = step.model_output
-                        if isinstance(thought, str):
-                            model_output = thought
-                        else:
-                            model_output = str(thought)
-
-                    code_action = step.code_action
-                    execution_result = step.observations if step.observations else None
-
-                    if model_output or code_action or execution_result:
-
-                        def add_thinking():
-                            chat_history.add_thinking(
-                                step_number,
-                                model_output or "",
-                                code_action or "",
-                                execution_result or "",
-                            )
-                            self.screen.refresh()
-
-                        self.call_later(add_thinking)
-
-                        # Save step to database - works even if session not active
-                        session = self.session_manager.get_current_session()
-                        if session and session.id:
-                            content = f"Step {step_number}"
-                            if model_output:
-                                content += f"\n{model_output}"
-                            if code_action:
-                                content += f"\nCode: {code_action}"
-                            if execution_result:
-                                content += f"\nResult: {execution_result}"
-                            asyncio.create_task(
-                                self._save_agent_step(session.id, content)
-                            )
 
                 # Update token counts after each step
                 await self._update_token_counts()
