@@ -1,0 +1,43 @@
+ThemePickerModal {
+    align: center middle;
+    background: transparent;
+}
+
+#theme-picker {
+    width: 50;
+    height: auto;
+    max-height: 20;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+#theme-picker ListView {
+    height: auto;
+    max-height: 16;
+}
+
+#theme-picker ListView > ListItem {
+    padding: 0 1;
+}
+
+#theme-picker ListItem:hover {
+    background: $primary-background;
+}
+
+#theme-picker ListItem.-selected {
+    background: $primary-background;
+}
+
+#title {
+    content-align: center middle;
+    text-style: bold;
+    color: $text;
+    margin-bottom: 1;
+}
+
+#hint {
+    content-align: center middle;
+    color: $text-muted;
+    margin-top: 1;
+}

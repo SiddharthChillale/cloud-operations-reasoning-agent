@@ -1,0 +1,43 @@
+SessionPickerModal {
+    align: center middle;
+}
+
+#picker-container {
+    width: 60;
+    height: 20;
+    border: solid $primary;
+    background: $surface;
+}
+
+#picker-header {
+    dock: top;
+    height: auto;
+    padding: 1 2;
+    background: $primary-background;
+    color: $text;
+    text-style: bold;
+}
+
+#session-list {
+    padding: 1 2;
+    overflow-y: auto;
+    scrollbar-size-vertical: 1;
+    scrollbar-color: $primary;
+}
+
+.session-item {
+    padding: 0 1;
+}
+
+.session-item.selected {
+    background: $primary-background;
+    color: $text;
+}
+
+#picker-footer {
+    dock: bottom;
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    color: $text-muted;
+}

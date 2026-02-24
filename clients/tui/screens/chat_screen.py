@@ -19,7 +19,7 @@ from textual.widgets import (
 )
 
 from clients.tui.components import ChatHistoryPanel
-from clients.tui.modals import SessionPickerModal, ThemePickerModal
+from clients.tui.modals import ConfigureModal, SessionPickerModal, ThemePickerModal
 from src.session import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class ChatScreen(Screen):
                 yield Static("Out: 0", id="output-tokens")
                 yield Static(
                     Text(
-                        "/new /sessions /help /theme /quit",
+                        "/new /sessions /help /theme /configure /quit",
                         style="$text-muted",
                     ),
                     id="exit-hint",
@@ -362,18 +362,22 @@ class ChatScreen(Screen):
         elif command == "/theme":
             chat_history.add_system_message("Opening theme picker...")
             self.app.call_later(self._open_theme_picker)
+        elif command == "/configure":
+            chat_history.add_system_message("Opening configure modal...")
+            self.app.call_later(self._open_configure_modal)
         elif command == "/quit":
             chat_history.add_system_message("Quitting...")
             self.app.call_later(self.app.exit)
         elif command == "/help":
             help_text = """
 Available commands:
-/new      - Create a new session
-/sessions - Open session picker
-/theme    - Open theme picker
-/quit     - Quit the application
-/help     - Show this help message
-/debug    - Show debug info (session state, agent state)
+/new       - Create a new session
+/sessions  - Open session picker
+/theme     - Open theme picker
+/configure - Open configure modal
+/quit      - Quit the application
+/help      - Show this help message
+/debug     - Show debug info (session state, agent state)
 
 Any other command starting with / will be sent to the AI agent.
 """
@@ -396,6 +400,9 @@ Any other command starting with / will be sent to the AI agent.
 
     def _open_theme_picker(self) -> None:
         self.app.push_screen(ThemePickerModal())
+
+    def _open_configure_modal(self) -> None:
+        self.app.push_screen(ConfigureModal())
 
     def _show_debug_info(self, chat_history: ChatHistoryPanel) -> None:
         """Show debug info about current session state."""

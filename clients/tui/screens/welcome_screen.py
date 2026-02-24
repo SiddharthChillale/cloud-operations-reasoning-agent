@@ -6,12 +6,12 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Input, LoadingIndicator, Static
 
 from clients.tui.screens import ChatScreen
-from clients.tui.modals import SessionPickerModal, ThemePickerModal
+from clients.tui.modals import ConfigureModal, SessionPickerModal, ThemePickerModal
 from src.session import SessionManager
 
 CORPUS_ASCII = Text(figlet_format("CORA", font="slant"), style="bold green")
@@ -53,7 +53,7 @@ class WelcomeScreen(Screen):
                 yield Static("Out: 0", id="output-tokens")
                 yield Static(
                     Text(
-                        "/new /sessions /help /theme /quit",
+                        "/new /sessions /help /theme /configure /quit",
                         style="$text-muted",
                     ),
                     id="exit-hint",
@@ -97,12 +97,15 @@ class WelcomeScreen(Screen):
             self.app_ref.push_screen(SessionPickerModal(self.session_manager))
         elif command == "/theme":
             self.app_ref.push_screen(ThemePickerModal())
+        elif command == "/configure":
+            self.app_ref.push_screen(ConfigureModal())
         elif command == "/help":
             help_text = """
 [bold]Available commands:[/bold]
-[cyan]/new[/cyan]      - Create a new session
-[cyan]/sessions[/cyan] - Open session picker
-[cyan]/theme[/cyan]    - Open theme picker
+[cyan]/new[/cyan]       - Create a new session
+[cyan]/sessions[/cyan]  - Open session picker
+[cyan]/theme[/cyan]     - Open theme picker
+[cyan]/configure[/cyan] - Open configure modal
 [cyan]/quit[/cyan]     - Quit the application
 [cyan]/help[/cyan]     - Show this help message
 

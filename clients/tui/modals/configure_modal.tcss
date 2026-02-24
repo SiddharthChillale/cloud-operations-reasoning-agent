@@ -1,0 +1,58 @@
+ConfigureModal {
+    align: center middle;
+    background: transparent;
+}
+
+#configure-form {
+    width: 70;
+    height: auto;
+    max-height: 35;
+    border: solid $accent;
+    background: $surface;
+    padding: 1 2;
+    overflow-y: auto;
+    scrollbar-size-vertical: 1;
+    scrollbar-color: $primary;
+}
+
+#configure-form .form-row {
+    height: auto;
+    margin-bottom: 1;
+    width: 100%;
+}
+
+#configure-form .form-label {
+    width: 20;
+    color: $text;
+}
+
+#configure-form Input {
+    width: 65%;
+}
+
+#title {
+    content-align: center middle;
+    text-style: bold;
+    color: $text;
+    margin-bottom: 1;
+}
+
+#config-path {
+    content-align: center middle;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#button-row {
+    content-align: center middle;
+    height: auto;
+    margin-top: 1;
+}
+
+#configure-form Button {
+    width: 15;
+}
+
+#configure-form #cancel-btn {
+    margin-right: 2;
+}

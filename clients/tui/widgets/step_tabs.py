@@ -35,6 +35,7 @@ class StepsTabbedContent(Vertical):
     
     StepsTabbedContent > TabbedContent > TabPane VerticalScroll {
         height: 100%;
+        scrollbar-size-vertical: 1;
     }
     
     StepsTabbedContent .section-label {

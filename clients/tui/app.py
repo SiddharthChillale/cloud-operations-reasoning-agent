@@ -18,7 +18,12 @@ logger.setLevel(logging.DEBUG)
 class ChatApp(App):
     """Main Textual application."""
 
-    CSS_PATH = "styles.tcss"
+    CSS_PATH = [
+        "styles.tcss",
+        "modals/configure_modal.tcss",
+        "modals/theme_picker.tcss",
+        "modals/session_picker.tcss",
+    ]
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit"),

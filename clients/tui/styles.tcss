@@ -46,6 +46,7 @@ Screen {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
+    scrollbar-size-vertical: 1;
 }
 
 #chat-history {
