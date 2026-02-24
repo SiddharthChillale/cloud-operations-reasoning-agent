@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "CORA stands for Cloud Operations Reasoning Agent. Cora helps developers and architects query their AWS architecture for resources and reason about the resource configurations."
 readme = "README.md"
 requires-python = ">=3.12"
+authors = [{name = "Siddharth Chillale"}]
 dependencies = [
     "boto3>=1.42.52",
     "fastapi>=0.104.0",
@@ -25,3 +26,7 @@ dev = [
     "ruff>=0.15.2",
     "textual-dev>=1.8.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
