@@ -668,9 +668,11 @@ name = "cora"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "boto3" },
     { name = "fastapi" },
     { name = "gradio" },
+    { name = "jinja2" },
     { name = "langfuse" },
     { name = "openinference-instrumentation-smolagents" },
     { name = "pyfiglet" },
@@ -691,9 +693,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "boto3", specifier = ">=1.42.52" },
     { name = "fastapi", specifier = ">=0.104.0" },
     { name = "gradio", specifier = ">=4.0.0" },
+    { name = "jinja2", specifier = ">=3.1.6" },
     { name = "langfuse", specifier = ">=3.14.4" },
     { name = "openinference-instrumentation-smolagents", specifier = ">=0.1.22" },
     { name = "pyfiglet", specifier = ">=1.0.0" },
