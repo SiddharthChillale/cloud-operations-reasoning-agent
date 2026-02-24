@@ -13,6 +13,7 @@ from textual.widgets import (
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+
 class StepsTabbedContent(Vertical):
     """Container for step tabs with dynamic tab management."""
 

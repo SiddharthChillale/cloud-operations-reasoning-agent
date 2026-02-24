@@ -11,7 +11,7 @@ CONFIG_DIR = Path.home() / ".config" / "cora"
 CONFIG_FILE = "config.yaml"
 REPO_CONFIG_FILE = Path(__file__).parent.parent / ".config" / "cora.yaml"
 
-DEFAULT_THEME = "nord"
+DEFAULT_THEME = "gruvbox"
 
 
 def _load_yaml_config(config_path: Path) -> dict:

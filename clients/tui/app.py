@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from textual.app import App
 from textual.binding import Binding
 
-from clients.tui.screens import ChatScreen
+from clients.tui.screens import WelcomeScreen
 from src.agents import cora_agent
 from src.config import get_config
 from src.session import SessionManager
@@ -34,24 +34,9 @@ class ChatApp(App):
     async def on_mount(self) -> None:
         self._register_themes()
         await self.session_manager.initialize()
-        await self.session_manager.create_session()
         self.agent = cora_agent()
         logger.info("Agent initialized successfully")
-
-        session = self.session_manager.get_current_session()
-        if session and session.id:
-            self._current_session_id = session.id
-            saved_steps = await self.session_manager.get_agent_steps(session.id)
-            if saved_steps:
-                try:
-                    self.agent.memory.steps = pickle.loads(saved_steps)
-                    logger.info(
-                        f"Restored {len(self.agent.memory.steps)} steps from session {session.id}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not restore agent steps: {e}")
-
-        self.push_screen(ChatScreen(self.session_manager, self.agent))
+        self.push_screen(WelcomeScreen(self.session_manager, self.agent, self))
 
     async def on_shutdown(self) -> None:
         logger.info("Saving sessions before shutdown")

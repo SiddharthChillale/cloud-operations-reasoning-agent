@@ -2,14 +2,12 @@ import asyncio
 import logging
 import pickle
 
-from pyfiglet import figlet_format
-from rich.align import Align
 from rich.text import Text
 from smolagents.memory import ActionStep, PlanningStep
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (
@@ -23,8 +21,6 @@ from textual.widgets import (
 from clients.tui.components import ChatHistoryPanel
 from clients.tui.modals import SessionPickerModal, ThemePickerModal
 from src.session import SessionManager
-
-CORPUS_ASCII = Text(figlet_format("CORA", font="slant"), style="bold green")
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +36,6 @@ class ChatScreen(Screen):
         super().__init__()
         self.session_manager = session_manager
         self.agent = agent
-        self.show_welcome = reactive(True)
         self._agent_running = reactive(False)
         self._first_query_sent = False
         self._current_tab_id: str | None = None
@@ -49,6 +44,7 @@ class ChatScreen(Screen):
         self._query_count = 0
         self._current_steps_tabs = None
         self._current_final_container = None
+        self._pending_query: str | None = None
 
     def _scroll_to_bottom(self, widget) -> None:
         """Scroll a widget to its bottom."""
@@ -60,12 +56,6 @@ class ChatScreen(Screen):
     def compose(self) -> ComposeResult:
         """Compose the layout."""
         with Vertical(id="main-container"):
-            with Container(id="welcome-header"):
-                yield Static(Align.center(CORPUS_ASCII), id="ascii-header")
-                yield Static(
-                    "[dim]Press Enter to send. Ctrl+C to quit.[/dim]", id="help-text"
-                )
-
             with VerticalScroll(id="scrollable-content"):
                 yield ChatHistoryPanel(id="chat-history")
 
@@ -208,33 +198,36 @@ class ChatScreen(Screen):
                             )
 
             if session.messages:
-                self.show_welcome = False
+                pass
             logger.info(f"Reconstructed {self._query_count} query sections")
         else:
             logger.debug("Started fresh session")
 
+        if self._pending_query:
+            query = self._pending_query
+            self._pending_query = None
+            self.call_later(lambda q=query: self._process_query_immediate(q))
+
+    def _process_query_immediate(self, query: str) -> None:
+        self._first_query_sent = True
+        self._agent_running = True
+        self.run_worker(
+            self._run_agent(query),
+            exclusive=True,
+        )
+
+    def run_query_on_mount(self, query: str) -> None:
+        self._pending_query = query
+
     @on(Input.Submitted, "#query-input")
     def _handle_input_submit(self, event: Input.Submitted) -> None:
         """Handle when user presses Enter in the input field."""
-        if self.show_welcome:
-            self._hide_welcome()
         self._process_query()
 
     @on(Button.Pressed, "#send-btn")
     def _handle_button_press(self, event: Button.Pressed) -> None:
         """Handle when user clicks the Send button."""
-        if self.show_welcome:
-            self._hide_welcome()
         self._process_query()
-
-    def _hide_welcome(self) -> None:
-        """Hide the welcome ASCII art header."""
-        self.show_welcome = False
-
-    def watch_show_welcome(self, show_welcome: bool) -> None:
-        """React to welcome header visibility changes."""
-        header = self.query_one("#welcome-header")
-        header.display = show_welcome
 
     def watch__agent_running(self, agent_running: bool) -> None:
         """React to agent running state changes."""
@@ -253,6 +246,8 @@ class ChatScreen(Screen):
         self, content: str, chat_history: ChatHistoryPanel
     ) -> None:
         """Process an agent message for chat history reconstruction."""
+        if isinstance(content, list):
+            content = str(content)
         if content.startswith("Final Answer:"):
             answer_text = content.replace("Final Answer:", "", 1).lstrip("\n")
             if self._current_final_container:
@@ -389,11 +384,12 @@ Any other command starting with / will be sent to the AI agent.
             self._send_to_agent(query, chat_history)
 
     async def _create_new_session(self) -> None:
-        await self.session_manager.create_session()
-        from clients.tui.screens import ChatScreen
+        from clients.tui.screens import WelcomeScreen
 
         self.app.pop_screen()
-        self.app.push_screen(ChatScreen(self.session_manager, self.app.agent))
+        self.app.push_screen(
+            WelcomeScreen(self.session_manager, self.app.agent, self.app)
+        )
 
     def _open_session_picker(self) -> None:
         self.app.push_screen(SessionPickerModal(self.session_manager))
@@ -701,6 +697,10 @@ Any other command starting with / will be sent to the AI agent.
                     answer_text = getattr(step, "action_output", None) or getattr(
                         step, "output", ""
                     )
+                    if isinstance(answer_text, list):
+                        answer_text = str(answer_text)
+                    elif not isinstance(answer_text, str):
+                        answer_text = str(answer_text)
                     session = self.session_manager.get_current_session()
                     if session and session.id:
                         answer_content = f"Final Answer:\n{answer_text}"

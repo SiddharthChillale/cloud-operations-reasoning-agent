@@ -19,6 +19,22 @@ Screen {
     opacity: 0;
 }
 
+#welcome-center {
+    height: 100%;
+    align: center middle;
+}
+
+#welcome-message {
+    height: auto;
+    padding: 1 2;
+}
+
+#welcome-input-area {
+    height: auto;
+    padding: 1 4;
+    width: 80%;
+}
+
 #scrollable-content {
     height: 100%;
     overflow-y: auto;

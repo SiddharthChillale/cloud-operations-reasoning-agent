@@ -41,7 +41,6 @@ def create_model() -> OpenAIModel:
     api_key = config.llm_api_key
     model_id = config.llm_model_id
     api_base = config.llm_api_base
-
     if not api_key:
         raise ValueError(f"No API key configured for provider: {provider}")
 
