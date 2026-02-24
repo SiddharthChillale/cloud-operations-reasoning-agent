@@ -30,16 +30,16 @@ class WelcomeScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="main-container"):
-            with Container(id="welcome-center"):
-                with Container(id="welcome-message"):
+            with Vertical(id="welcome-center"):
+                with Vertical(id="welcome-message"):
                     yield Static(Align.center(CORPUS_ASCII), id="ascii-header")
                     yield Static(
-                        "[dim]Press Enter to send. Ctrl+C to quit.[/dim]",
+                        "[dim]Press Enter to send. /quit to exit.[/dim]",
                         id="help-text",
                     )
                     yield Static("", id="welcome-status")
 
-                with Container(id="welcome-input-area"):
+                with Vertical(id="welcome-input-area"):
                     yield Input("", id="query-input")
 
             with Horizontal(id="status-bar"):

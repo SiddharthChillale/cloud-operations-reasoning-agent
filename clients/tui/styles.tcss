@@ -15,6 +15,14 @@ Screen {
     transition: opacity 300ms;
 }
 
+#welcome-status{
+    text-align: center;
+}
+
+#help-text{
+    text-align: center;
+}
+
 #welcome-header.hidden {
     opacity: 0;
 }
@@ -32,7 +40,6 @@ Screen {
 #welcome-input-area {
     height: auto;
     padding: 1 4;
-    width: 80%;
 }
 
 #scrollable-content {
