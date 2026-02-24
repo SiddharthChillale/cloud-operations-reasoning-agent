@@ -169,7 +169,7 @@ class SessionPickerModal(ModalScreen[None]):
         logger.info(f"Switching to session {session_id}")
         await self.app.switch_to_session(session_id)
         self.app.pop_screen()
-        from clients.tui.app import ChatScreen
+        from clients.tui.screens import ChatScreen
 
         self.app.push_screen(ChatScreen(self.session_manager, self.app.agent))
 
