@@ -55,7 +55,7 @@ def cora_agent() -> CodeAgent:
         instructions="""All resources are in us-east-2 region unless specified otherwise""",
         use_structured_outputs_internally=True,
         stream_outputs=True,
-        planning_interval=2,
+        planning_interval=3,
         max_steps=10,
         additional_authorized_imports=additional_authorized_imports,
     )
