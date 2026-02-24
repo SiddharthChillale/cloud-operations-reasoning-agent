@@ -621,7 +621,7 @@ Any other command starting with / will be sent to the AI agent.
                 """Run agent in thread and yield steps."""
                 logger.info("stream_agent: starting agent.run()")
                 try:
-                    result = self.agent.run(query, stream=True)
+                    result = self.agent.run(query, stream=True, reset=False)
                     logger.info(f"stream_agent: agent.run() returned: {type(result)}")
                     return result
                 except Exception as e:
