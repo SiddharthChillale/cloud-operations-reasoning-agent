@@ -9,16 +9,17 @@ from smolagents.memory import ActionStep, PlanningStep
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
     Button,
     Input,
     LoadingIndicator,
+    Markdown as TextualMarkdown,
     Static,
 )
 
-from clients.tui.step_widget import StepWidget
+from clients.tui.step_tabs import StepsTabbedContent
 from src.agents import cora_agent
 from src.config import get_config
 from src.session import SessionManager, MessageRole
@@ -27,26 +28,43 @@ from src.themes import BUILT_IN_THEMES
 CORPUS_ASCII = Text(figlet_format("CORA", font="slant"), style="bold green")
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class ChatHistoryPanel(Static):
-    """Panel that displays chat history."""
+    """Panel that displays chat history with query sections."""
 
     def __init__(self, **kwargs):
         super().__init__("", **kwargs)
-        self.pending_query_widget = None
+        self._query_sections: list[Vertical] = []
 
-    def add_user_message(self, message: str):
-        """Add a user message to the chat history."""
-        widget = Static(f"\n{message}", classes="user-msg pending-query", markup=False)
-        self.mount(widget)
-        self.pending_query_widget = widget
-        return widget
+    def add_query_section(
+        self, query_text: str, query_number: int
+    ) -> tuple[Vertical, "StepsTabbedContent", Static]:
+        """Create a new query section with tabs. Returns (container, steps_tabs, final_container)."""
+        query_section = Vertical(
+            id=f"query-section-{query_number}", classes="query-section"
+        )
 
-    def add_agent_message(self, message: str, message_class: str = "agent-msg"):
-        """Add an agent message to the chat history."""
-        widget = Static(f"\n{message}", classes=message_class)
-        self.mount(widget)
+        # Mount to self (ChatHistoryPanel) first
+        self.mount(query_section)
+
+        # Now mount children to the mounted query_section
+        query_section.mount(Static(f"> {query_text}", classes="query-text"))
+
+        steps_tabs = StepsTabbedContent(id=f"steps-tabs-{query_number}")
+        query_section.mount(steps_tabs)
+
+        final_container = Static(
+            id=f"final-answer-{query_number}", classes="final-answer-section"
+        )
+        query_section.mount(final_container)
+
+        self._query_sections.append(query_section)
+
+        logger.debug(f"ChatHistoryPanel: added query section {query_number}")
+
+        return query_section, steps_tabs, final_container
 
     def add_system_message(self, message: str):
         """Add a system message to the chat history."""
@@ -54,70 +72,9 @@ class ChatHistoryPanel(Static):
         self.mount(widget)
         return widget
 
-    def add_thinking(
-        self,
-        step_number: int,
-        model_output: str = "",
-        code_action: str = "",
-        execution_result: str = "",
-    ):
-        """Add a step widget with RichLog for live terminal-style output."""
-        step_widget = StepWidget(step_number, classes="thinking-box")
-        self.mount(step_widget)
-
-        if model_output:
-            step_widget.write_thought(model_output)
-        if code_action:
-            step_widget.write_code(code_action)
-        if execution_result:
-            is_error = "error" in execution_result.lower()
-            step_widget.write_result(execution_result, is_error=is_error)
-
-        return step_widget
-
-    def add_planning(self, step_number: int, plan_text: str = ""):
-        """Add a planning step widget with RichLog (expanded by default)."""
-        step_widget = StepWidget(step_number, is_planning=True, classes="thinking-box")
-        self.mount(step_widget)
-
-        if plan_text:
-            step_widget.write_plan(plan_text)
-
-        return step_widget
-
-    def stream_step_content(
-        self,
-        step_widget,
-        thought: str,
-        code: str,
-        result: str,
-        is_error: bool = False,
-    ):
-        """Stream step content line by line to an existing step widget."""
-        if thought:
-            step_widget.write_thought(thought)
-
-        if code:
-            step_widget.write_code_start()
-            for line in code.split("\n"):
-                step_widget.write_line(line + "\n")
-
-        if result:
-            step_widget.write_result_start(is_error)
-            for line in result.split("\n"):
-                step_widget.write_line(line + "\n")
-
-    def add_step(self, step_number: int):
-        """Create a new step widget for incremental updates."""
-        step_widget = StepWidget(step_number, classes="thinking-box")
-        self.mount(step_widget)
-        return step_widget
-
     def clear_pending_border(self):
-        """Remove the green border from the pending query."""
-        if self.pending_query_widget:
-            self.pending_query_widget.remove_class("pending-query")
-            self.pending_query_widget = None
+        """No-op for compatibility."""
+        pass
 
 
 class ChatScreen(Screen):
@@ -134,6 +91,19 @@ class ChatScreen(Screen):
         self.show_welcome = True
         self._agent_running = False
         self._first_query_sent = False
+        self._current_tab_id: str | None = None
+        self._planning_tab_ids: list[str] = []
+        self._action_tab_ids: list[str] = []
+        self._query_count = 0
+        self._current_steps_tabs = None
+        self._current_final_container = None
+
+    def _scroll_to_bottom(self, widget) -> None:
+        """Scroll a widget to its bottom."""
+        try:
+            widget.scroll_end()
+        except Exception:
+            pass
 
     def compose(self) -> ComposeResult:
         """Compose the layout."""
@@ -144,7 +114,8 @@ class ChatScreen(Screen):
                     "[dim]Press Enter to send. Ctrl+C to quit.[/dim]", id="help-text"
                 )
 
-            yield ChatHistoryPanel(id="chat-history")
+            with VerticalScroll(id="scrollable-content"):
+                yield ChatHistoryPanel(id="chat-history")
 
             with Horizontal(id="model-info"):
                 yield Static("qwen/qwen3-coder", id="model-name")
@@ -217,106 +188,87 @@ class ChatScreen(Screen):
                 except Exception as e:
                     logger.warning(f"Could not restore agent steps: {e}")
 
-            # Load cumulative token counts from DB
-            metrics = await self.session_manager.get_metrics(session.id)
-            if metrics:
+            # Load cumulative token counts from all agent runs for this session
+            cumulative = await self.session_manager.get_session_cumulative_tokens(
+                session.id
+            )
 
-                def update_tokens():
-                    try:
-                        input_widget = self.query_one("#input-tokens", Static)
-                        output_widget = self.query_one("#output-tokens", Static)
-                        input_widget.update(f"In: {metrics.get('input_tokens', 0)}")
-                        output_widget.update(f"Out: {metrics.get('output_tokens', 0)}")
-                    except Exception:
-                        pass
+            def update_tokens():
+                try:
+                    input_widget = self.query_one("#input-tokens", Static)
+                    output_widget = self.query_one("#output-tokens", Static)
+                    input_widget.update(f"In: {cumulative.get('input_tokens', 0)}")
+                    output_widget.update(f"Out: {cumulative.get('output_tokens', 0)}")
+                except Exception:
+                    pass
 
-                self.call_later(update_tokens)
-                logger.info(
-                    f"Loaded cumulative tokens: in={metrics.get('input_tokens', 0)}, out={metrics.get('output_tokens', 0)}"
-                )
+            self.call_later(update_tokens)
+            logger.info(
+                f"Loaded cumulative tokens: in={cumulative.get('input_tokens', 0)}, out={cumulative.get('output_tokens', 0)}"
+            )
 
-        # Load chat history
+        # Clear chat history
         chat_history = self.query_one("#chat-history", ChatHistoryPanel)
         chat_history.remove_children()
 
+        # Reconstruct chat history from session messages
         if session and session.messages:
-            for msg in session.messages:
-                if msg.role == MessageRole.USER:
-                    chat_history.add_user_message(msg.content)
-                elif msg.role == MessageRole.AGENT:
-                    chat_history.add_agent_message(msg.content)
-                elif msg.role == MessageRole.SYSTEM:
-                    chat_history.add_system_message(msg.content)
+            logger.info(
+                f"Reconstructing chat history with {len(session.messages)} messages"
+            )
+            self._query_count = 0
+            self._current_steps_tabs = None
+            self._current_final_container = None
+
+            user_messages = [m for m in session.messages if m.role == MessageRole.USER]
+            has_user_messages = bool(user_messages)
+
+            if has_user_messages:
+                for msg in session.messages:
+                    if msg.role == MessageRole.USER:
+                        self._query_count += 1
+                        query_section, steps_tabs, final_container = (
+                            chat_history.add_query_section(
+                                msg.content, self._query_count
+                            )
+                        )
+                        self._current_steps_tabs = steps_tabs
+                        self._current_final_container = final_container
+                    elif msg.role == MessageRole.AGENT:
+                        self._process_agent_message_for_reconstruction(
+                            msg.content, chat_history
+                        )
+            else:
+                logger.warning(
+                    f"No USER messages found in session {session.id}, "
+                    "attempting to reconstruct from agent messages only"
+                )
+                for msg in session.messages:
+                    if msg.role == MessageRole.AGENT:
+                        content = msg.content
+                        if content.startswith("Final Answer:"):
+                            self._query_count += 1
+                            query_section, steps_tabs, final_container = (
+                                chat_history.add_query_section(
+                                    f"[Restored Query {self._query_count}]",
+                                    self._query_count,
+                                )
+                            )
+                            self._current_steps_tabs = steps_tabs
+                            self._current_final_container = final_container
+                            self._process_agent_message_for_reconstruction(
+                                content, chat_history
+                            )
+
             if session.messages:
                 self.show_welcome = False
-                self.call_later(self._hide_welcome)
-                logger.debug(
-                    f"Displayed {len(session.messages)} messages in chat history"
-                )
-
-        # Restore step widgets from agent memory steps
-        if (
-            hasattr(self, "agent")
-            and self.agent
-            and hasattr(self.agent.memory, "steps")
-        ):
-            for step in self.agent.memory.steps:
-                if isinstance(step, PlanningStep):
-                    # Handle PlanningStep
-                    plan_text = (
-                        step.plan
-                        if hasattr(step, "plan") and step.plan
-                        else "Planning..."
-                    )
-
-                    def add_planning_widget():
-                        chat_history.add_planning(0, plan_text)
-
-                    self.call_later(add_planning_widget)
-
-                elif isinstance(step, ActionStep):
-                    step_number = step.step_number
-
-                    logger.info(
-                        "model_output: "
-                        + str(step.model_output)
-                        + " type: "
-                        + str(type(step.model_output))
-                    )
-                    # Extract thought
-                    model_output = None
-                    if step.model_output:
-                        thought = step.model_output
-                        if isinstance(thought, str):
-                            model_output = thought
-                        elif isinstance(thought, dict):
-                            model_output = (
-                                thought.get("thought")
-                                or thought.get("text")
-                                or str(thought)
-                            )
-                        else:
-                            model_output = str(thought)
-
-                    code_action = step.code_action or ""
-                    execution_result = step.observations or ""
-
-                    # Create step widget (collapsed by default for historical steps)
-                    def add_step_widget():
-                        step_widget = chat_history.add_thinking(
-                            step_number,
-                            model_output or "",
-                            code_action,
-                            execution_result,
-                        )
-                        # Collapse historical steps
-                        if step_widget:
-                            step_widget.collapse()
-
-                    self.call_later(add_step_widget)
-
+                header = self.query_one("#welcome-header")
+                header.display = False
+            logger.info(f"Reconstructed {self._query_count} query sections")
         else:
-            logger.debug("No messages to display")
+            # Keep show_welcome = True so welcome is shown on load
+            # It will be set to False when first query is sent
+            logger.debug("Started fresh session")
 
         if self._agent_running:
             spinner = self.query_one("#spinner")
@@ -341,6 +293,58 @@ class ChatScreen(Screen):
         self.show_welcome = False
         header = self.query_one("#welcome-header")
         header.display = False
+
+    def _process_agent_message_for_reconstruction(
+        self, content: str, chat_history: ChatHistoryPanel
+    ) -> None:
+        """Process an agent message for chat history reconstruction."""
+        if content.startswith("Final Answer:"):
+            answer_text = content.replace("Final Answer:", "", 1).lstrip("\n")
+            if self._current_final_container:
+                final_answer_md = TextualMarkdown(
+                    answer_text,
+                    id=f"final-answer-markdown-{self._query_count}",
+                )
+                self._current_final_container.update("")
+                self._current_final_container.mount(final_answer_md)
+                self._current_final_container.add_class("visible")
+        elif content.startswith("Plan "):
+            if self._current_steps_tabs:
+                try:
+                    lines = content.split("\n", 1)
+                    plan_content = lines[1] if len(lines) > 1 else ""
+                    self._current_steps_tabs.add_planning_tab(plan_content)
+                except Exception as e:
+                    logger.warning(f"Could not parse plan step: {e}")
+        elif content.startswith("Step "):
+            if self._current_steps_tabs:
+                try:
+                    lines = content.split("\n")
+                    step_line = lines[0]
+                    step_num = int(step_line.replace("Step ", ""))
+
+                    thought = ""
+                    code = ""
+                    observations = ""
+
+                    for line in lines[1:]:
+                        if line.startswith("Code:"):
+                            code = line.replace("Code:", "").strip()
+                        elif line.startswith("Result:"):
+                            observations = line.replace("Result:", "").strip()
+                        elif line and not thought:
+                            thought = line
+
+                    tab_id = self._current_steps_tabs.add_action_tab(step_num)
+                    self._action_tab_ids.append(tab_id)
+                    self._current_steps_tabs.update_action_tab(
+                        tab_id,
+                        thought=thought,
+                        code=code,
+                        observations=observations,
+                    )
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Could not parse agent step: {e}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle when user clicks the Send button."""
@@ -388,21 +392,21 @@ class ChatScreen(Screen):
                 except Exception as e:
                     logger.warning(f"Could not update session title: {e}")
 
-        chat_history.add_user_message(query)
+        # Query will be displayed in query section created by _run_agent
 
+        # Save user message to database
+        logger.info(f"_process_query: about to save user message, query='{query}'")
         session = self.session_manager.get_current_session()
+        logger.info(
+            f"_process_query: session={session}, session.id={session.id if session else None}"
+        )
         if session and session.id:
-            # Save message to DB synchronously
+            logger.info(
+                f"_process_query: calling asyncio.create_task for _add_user_message"
+            )
             import asyncio
 
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self._add_user_message(session.id, query))
-                else:
-                    loop.run_until_complete(self._add_user_message(session.id, query))
-            except Exception as e:
-                logger.warning(f"Could not save user message: {e}")
+            asyncio.create_task(self._add_user_message(session.id, query))
 
         spinner = self.query_one("#spinner")
         spinner.display = True
@@ -446,7 +450,7 @@ Any other command starting with / will be sent to the AI agent.
         elif command == "/debug":
             self._show_debug_info(chat_history)
         else:
-            chat_history.add_user_message(query)
+            # Send unrecognized commands to agent - will create query section in _run_agent
             self._send_to_agent(query, chat_history)
 
     async def _create_new_session(self) -> None:
@@ -522,10 +526,19 @@ Any other command starting with / will be sent to the AI agent.
         await self.session_manager.update_session_title(session_id, title)
 
     async def _add_user_message(self, session_id: int, content: str) -> None:
-        await self.session_manager.add_message(MessageRole.USER, content)
+        logger.info(
+            f"Saving USER message: session_id={session_id}, content={content[:50]}..."
+        )
+        try:
+            await self.session_manager.add_message(
+                MessageRole.USER, content, session_id
+            )
+            logger.info(f"USER message saved successfully to session {session_id}")
+        except Exception as e:
+            logger.exception(f"Failed to save USER message: {e}")
 
     async def _add_agent_message(self, session_id: int, content: str) -> None:
-        await self.session_manager.add_message(MessageRole.AGENT, content)
+        await self.session_manager.add_message(MessageRole.AGENT, content, session_id)
 
     async def _save_agent_step(self, session_id: int, content: str) -> None:
         """Save agent step to database - works even if session not active."""
@@ -537,7 +550,7 @@ Any other command starting with / will be sent to the AI agent.
         except Exception as e:
             logger.warning(f"Could not save agent step: {e}")
 
-    async def _update_token_counts(self) -> None:
+    async def _update_token_counts(self, save_to_db: bool = False) -> None:
         """Get token counts from agent monitor and update status bar."""
         try:
             token_counts = self.agent.monitor.get_total_token_counts()
@@ -555,17 +568,16 @@ Any other command starting with / will be sent to the AI agent.
 
             self.call_later(update_ui)
 
-            session = self.session_manager.get_current_session()
-            if session and session.id:
-                asyncio.create_task(
-                    self.session_manager.save_metrics(
-                        session.id,
-                        get_config().llm_model_id,
-                        get_config().llm_provider,
-                        input_tokens,
-                        output_tokens,
+            if save_to_db:
+                session = self.session_manager.get_current_session()
+                if session and session.id:
+                    asyncio.create_task(
+                        self.session_manager.save_agent_run_metrics(
+                            session.id,
+                            input_tokens,
+                            output_tokens,
+                        )
                     )
-                )
         except Exception as e:
             logger.debug(f"Could not get token counts: {e}")
 
@@ -575,7 +587,24 @@ Any other command starting with / will be sent to the AI agent.
         spinner = self.query_one("#spinner")
         query_time = self.query_one("#query-time", Static)
 
-        # Log agent memory state before running
+        self._query_count += 1
+        current_query_num = self._query_count
+
+        self._planning_tab_ids = []
+        self._action_tab_ids = []
+
+        # Create query section using ChatHistoryPanel's method
+        query_section, steps_tabs, final_container = chat_history.add_query_section(
+            query, current_query_num
+        )
+
+        # Store references for use in callbacks
+        self._current_steps_tabs = steps_tabs
+        self._current_final_container = final_container
+
+        # Scroll to show the new query
+        self.call_later(lambda: self._scroll_to_bottom(chat_history))
+
         logger.info("=== AGENT MEMORY BEFORE RUN ===")
         logger.info(f"Memory steps count: {len(self.agent.memory.steps)}")
         for i, step in enumerate(self.agent.memory.steps):
@@ -585,14 +614,24 @@ Any other command starting with / will be sent to the AI agent.
         try:
             import time
 
+            logger.info(f"Starting agent run with query: {query}")
             start_time = time.time()
 
             def stream_agent():
                 """Run agent in thread and yield steps."""
-                return self.agent.run(query, stream=True)
+                logger.info("stream_agent: starting agent.run()")
+                try:
+                    result = self.agent.run(query, stream=True)
+                    logger.info(f"stream_agent: agent.run() returned: {type(result)}")
+                    return result
+                except Exception as e:
+                    logger.exception(f"stream_agent: agent.run() raised: {e}")
+                    raise
 
             loop = asyncio.get_event_loop()
+            logger.info(f"self.app.executor: {self.app.executor}")
             stream_gen = await loop.run_in_executor(self.app.executor, stream_agent)
+            logger.info("stream_gen created successfully")
 
             def get_next_step():
                 """Get next step from generator in thread."""
@@ -617,24 +656,52 @@ Any other command starting with / will be sent to the AI agent.
                         else "Planning..."
                     )
 
-                    # Create planning step widget (expanded by default)
-                    # Use 0 for planning steps since they don't have step_number
                     def add_planning():
-                        chat_history.add_planning(0, plan_text)
-                        self.screen.refresh()
+                        try:
+                            logger.debug(
+                                f"add_planning called, _current_steps_tabs={self._current_steps_tabs}"
+                            )
+                            if self._current_steps_tabs:
+                                tab_id = self._current_steps_tabs.add_planning_tab(
+                                    plan_text
+                                )
+                                self._planning_tab_ids.append(tab_id)
+                                self._current_tab_id = tab_id
+                                self.screen.refresh()
+                            else:
+                                logger.warning(
+                                    "add_planning: _current_steps_tabs is None!"
+                                )
+                        except Exception as e:
+                            logger.exception(f"Error in add_planning: {e}")
 
                     self.call_later(add_planning)
+
+                    # Save planning step to database
+                    session = self.session_manager.get_current_session()
+                    if session and session.id:
+                        content = f"Plan {len(self._planning_tab_ids)}\n{plan_text}"
+                        asyncio.create_task(self._save_agent_step(session.id, content))
+
                     continue
 
                 elif isinstance(step, ActionStep):
                     step_number = step.step_number
 
-                    # Extract thought from model_output
                     model_output = None
                     if step.model_output:
                         thought = step.model_output
-                        if isinstance(thought, str):
-                            # Try to parse as JSON in case it's a JSON string
+                        model_output = None
+                        if isinstance(thought, list):
+                            texts = []
+                            for item in thought:
+                                if (
+                                    isinstance(item, dict)
+                                    and item.get("type") == "text"
+                                ):
+                                    texts.append(item.get("text", ""))
+                            model_output = "\n".join(texts) if texts else str(thought)
+                        elif isinstance(thought, str):
                             import json
 
                             try:
@@ -647,7 +714,7 @@ Any other command starting with / will be sent to the AI agent.
                                         or thought
                                     )
                             except (json.JSONDecodeError, TypeError):
-                                pass  # Not JSON, use as-is
+                                pass
                             model_output = thought
                         elif isinstance(thought, dict):
                             model_output = (
@@ -657,76 +724,37 @@ Any other command starting with / will be sent to the AI agent.
                                 or str(thought)
                             )
                         else:
-                            model_output = str(thought)
+                            model_output = str(thought) if thought else None
 
                     code_action = step.code_action
                     execution_result = step.observations if step.observations else None
-                    is_error = bool(
-                        execution_result and "error" in execution_result.lower()
-                    )
-
-                    current_step_widget = None
 
                     if model_output or code_action or execution_result:
-                        # Create step widget with thought first
-                        def add_thinking():
-                            nonlocal current_step_widget
-                            current_step_widget = chat_history.add_thinking(
-                                step_number,
-                                model_output or "",
-                                "",
-                                "",
-                            )
-                            self.screen.refresh()
 
-                        self.call_later(add_thinking)
+                        def add_action_step():
+                            try:
+                                if self._current_steps_tabs:
+                                    tab_id = self._current_steps_tabs.add_action_tab(
+                                        step_number
+                                    )
+                                    self._action_tab_ids.append(tab_id)
+                                    self._current_tab_id = tab_id
+                                    self._current_steps_tabs.update_action_tab(
+                                        tab_id,
+                                        thought=model_output or "",
+                                        code=code_action or "",
+                                        observations=execution_result or "",
+                                    )
+                                    self.screen.refresh()
+                                else:
+                                    logger.warning(
+                                        "add_action_step: _current_steps_tabs is None!"
+                                    )
+                            except Exception as e:
+                                logger.exception(f"Error in add_action_step: {e}")
 
-                        # Write code with syntax highlighting first (for proper highlighting)
-                        if code_action:
+                        self.call_later(add_action_step)
 
-                            def write_code(code=code_action):
-                                if current_step_widget and code:
-                                    current_step_widget.write_code(code)
-
-                            self.call_later(write_code)
-
-                        # Stream result line by line with 10ms delay
-                        if execution_result:
-                            result_lines = execution_result.split("\n")
-                            for i, line in enumerate(result_lines):
-
-                                def write_result_line(
-                                    line=line, is_last=(i == len(result_lines) - 1)
-                                ):
-                                    if current_step_widget:
-                                        if i == 0:
-                                            current_step_widget.write_result_start(
-                                                is_error
-                                            )
-                                        current_step_widget.write_line(line + "\n")
-                                        if is_last:
-                                            current_step_widget.collapse()
-
-                                self.call_later(write_result_line)
-                                await asyncio.sleep(0.01)
-                        elif code_action:
-                            # Collapse after code if no result
-                            def collapse_after_code():
-                                if current_step_widget:
-                                    current_step_widget.collapse()
-
-                            self.call_later(collapse_after_code)
-
-                        # If no code or result, just collapse after thought
-                        if not code_action and not execution_result:
-
-                            def collapse_after_thought():
-                                if current_step_widget:
-                                    current_step_widget.collapse()
-
-                            self.call_later(collapse_after_thought)
-
-                        # Save step to database - works even if session not active
                         session = self.session_manager.get_current_session()
                         if session and session.id:
                             content = f"Step {step_number}"
@@ -741,7 +769,6 @@ Any other command starting with / will be sent to the AI agent.
                             )
 
                 elif hasattr(step, "is_final_answer") and step.is_final_answer:
-                    # Use action_output if available (ActionStep), otherwise output (FinalAnswerStep)
                     answer_text = getattr(step, "action_output", None) or getattr(
                         step, "output", ""
                     )
@@ -752,21 +779,22 @@ Any other command starting with / will be sent to the AI agent.
                             self._save_agent_step(session.id, answer_content)
                         )
 
-                    # Update token counts after final answer
-                    await self._update_token_counts()
+                    await self._update_token_counts(save_to_db=True)
 
                     def finish():
-                        chat_history.add_agent_message(
-                            "Final Answer:\n" + str(answer_text),
-                            message_class="final-answer",
+                        final_answer_md = TextualMarkdown(
+                            answer_text,
+                            id=f"final-answer-markdown-{current_query_num}",
                         )
+                        self._current_final_container.update("")
+                        self._current_final_container.mount(final_answer_md)
+                        self._current_final_container.add_class("visible")
                         self.screen.refresh()
 
                     self.call_later(finish)
                     break
 
-                # Update token counts after each step
-                await self._update_token_counts()
+                await self._update_token_counts(save_to_db=False)
 
                 await asyncio.sleep(0)
 
@@ -845,8 +873,15 @@ class ChatApp(App):
         background: $background;
     }
     
-    #chat-history {
+    #scrollable-content {
         height: 100%;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+    }
+    
+    #chat-history {
+        height: auto;
+        max-height: 100%;
         margin: 1 2;
         overflow-y: auto;
         scrollbar-gutter: stable;
@@ -1001,6 +1036,30 @@ class ChatApp(App):
     .step-log-container {
         border: solid $panel;
         margin: 1 0;
+    }
+    
+    .query-section {
+        height: auto;
+        min-height: 35vh;
+        padding: 1;
+        background: $surface;
+        border: solid $panel;
+    }
+    
+    .query-section .query-text {
+        color: $accent;
+        text-style: bold;
+        padding: 1;
+    }
+    
+    .query-section .final-answer-section {
+        padding: 1;
+        margin-top: 1;
+        border-left: thick $accent;
+    }
+    
+    StepsTabbedContent {
+        height: 35vh;
     }
     """
 

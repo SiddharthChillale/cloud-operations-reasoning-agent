@@ -56,6 +56,11 @@ class SessionManager:
         if session is not None:
             await self.db.set_active_session(session_id)
             self._current_session = session
+
+            # Add to _sessions if not already there
+            if not any(s.id == session_id for s in self._sessions):
+                self._sessions.append(session)
+
             logger.info(f"Switched to session {session_id}: {session.title}")
             return session
         logger.warning(f"Session {session_id} not found")
@@ -109,9 +114,15 @@ class SessionManager:
             self._current_session.agent_steps = agent_steps
 
     async def get_agent_steps(self, session_id: int) -> Optional[bytes]:
+        # Try in-memory first
         for session in self._sessions:
             if session.id == session_id:
                 return session.agent_steps if session.agent_steps else None
+
+        # If not found in memory, query DB directly
+        session = await self.db.get_session(session_id)
+        if session:
+            return session.agent_steps if session.agent_steps else None
         return None
 
     def get_current_agent_steps(self) -> Optional[bytes]:
@@ -123,25 +134,29 @@ class SessionManager:
             )
         return None
 
-    async def save_metrics(
+    async def save_agent_run_metrics(
         self,
         session_id: int,
-        model_id: str,
-        provider: str,
         input_tokens: int,
         output_tokens: int,
     ) -> None:
-        await self.db.save_session_metrics(
-            session_id, model_id, provider, input_tokens, output_tokens
+        run_count = await self.get_agent_run_count(session_id)
+        await self.db.save_agent_run_metrics(
+            session_id, run_count + 1, input_tokens, output_tokens
         )
         logger.debug(
-            f"Saved metrics for session {session_id}: {input_tokens} in, {output_tokens} out"
+            f"Saved run {run_count + 1} metrics for session {session_id}: {input_tokens} in, {output_tokens} out"
         )
 
-    async def get_metrics(self, session_id: int) -> dict | None:
-        return await self.db.get_session_metrics(session_id)
+    async def get_agent_run_metrics(self, session_id: int) -> list[dict]:
+        return await self.db.get_agent_run_metrics(session_id)
 
-    async def get_current_metrics(self) -> dict | None:
-        if self._current_session and self._current_session.id:
-            return await self.get_metrics(self._current_session.id)
-        return None
+    async def get_agent_run_count(self, session_id: int) -> int:
+        return await self.db.get_latest_run_number(session_id)
+
+    async def get_session_cumulative_tokens(self, session_id: int) -> dict:
+        runs = await self.get_agent_run_metrics(session_id)
+        return {
+            "input_tokens": sum(r["input_tokens"] for r in runs),
+            "output_tokens": sum(r["output_tokens"] for r in runs),
+        }
