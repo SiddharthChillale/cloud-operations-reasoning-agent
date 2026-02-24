@@ -1,5 +1,3 @@
-import asyncio
-
 from pyfiglet import figlet_format
 from rich.align import Align
 from rich.text import Text
@@ -123,9 +121,6 @@ class WelcomeScreen(Screen):
         await self.session_manager.create_session(title)
 
         chat_screen = ChatScreen(self.session_manager, self.agent)
+        chat_screen.run_query_on_mount(query)
         self.app_ref.pop_screen()
         self.app_ref.push_screen(chat_screen)
-
-        await asyncio.sleep(0.1)
-
-        chat_screen.run_query_on_mount(query)
