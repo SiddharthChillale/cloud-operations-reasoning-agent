@@ -12,6 +12,11 @@ Screen {
     height: auto;
     padding: 1 2;
     background: $background;
+    transition: opacity 300ms;
+}
+
+#welcome-header.hidden {
+    opacity: 0;
 }
 
 #scrollable-content {
@@ -23,7 +28,6 @@ Screen {
 #chat-history {
     height: auto;
     max-height: 100%;
-    margin: 1 2;
     overflow-y: auto;
     scrollbar-gutter: stable;
     scrollbar-size-vertical: 1;
@@ -122,23 +126,19 @@ Screen {
     border-top: none;
     border-right: none;
     border-bottom: none;
-    padding: 1 2 1 2;
 }
 
 .user-msg {
-    padding: 0 2;
     border-left: thick $success;
     color: $text-warning;
 }
 
 .agent-msg {
-    padding: 0 2;
     border-left: solid $panel;
     color: $text;
 }
 
 .final-answer {
-    padding: 0 2;
     border-left: thick $accent;
     color: $text;
 }
@@ -149,7 +149,6 @@ Screen {
 }
 
 .system-msg {
-    padding: 0 2;
     color: $text-muted;
     text-style: italic;
 }
@@ -185,17 +184,20 @@ Screen {
     padding: 1;
     background: $surface;
     border: solid $panel;
+    transition: opacity 200ms;
+    opacity: 1;
+}
+
+.query-section.fade-in {
+    opacity: 0;
 }
 
 .query-section .query-text {
     color: $accent;
     text-style: bold;
-    padding: 1;
 }
 
 .query-section .final-answer-section {
-    padding: 1;
-    margin-top: 1;
     border-left: thick $accent;
 }
 

@@ -11,7 +11,7 @@ from textual.widgets import (
 )
 
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.DEBUG)
 
 class StepsTabbedContent(Vertical):
     """Container for step tabs with dynamic tab management."""
@@ -40,6 +40,7 @@ class StepsTabbedContent(Vertical):
         color: $accent;
         text-style: bold;
         margin-top: 1;
+        padding: 0 1;
     }
     
     StepsTabbedContent .thought-text {

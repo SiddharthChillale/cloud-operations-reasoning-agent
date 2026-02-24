@@ -10,6 +10,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (
     Button,
@@ -39,8 +40,8 @@ class ChatScreen(Screen):
         super().__init__()
         self.session_manager = session_manager
         self.agent = agent
-        self.show_welcome = True
-        self._agent_running = False
+        self.show_welcome = reactive(True)
+        self._agent_running = reactive(False)
         self._first_query_sent = False
         self._current_tab_id: str | None = None
         self._planning_tab_ids: list[str] = []
@@ -208,15 +209,9 @@ class ChatScreen(Screen):
 
             if session.messages:
                 self.show_welcome = False
-                header = self.query_one("#welcome-header")
-                header.display = False
             logger.info(f"Reconstructed {self._query_count} query sections")
         else:
             logger.debug("Started fresh session")
-
-        if self._agent_running:
-            spinner = self.query_one("#spinner")
-            spinner.display = True
 
     @on(Input.Submitted, "#query-input")
     def _handle_input_submit(self, event: Input.Submitted) -> None:
@@ -235,8 +230,24 @@ class ChatScreen(Screen):
     def _hide_welcome(self) -> None:
         """Hide the welcome ASCII art header."""
         self.show_welcome = False
+
+    def watch_show_welcome(self, show_welcome: bool) -> None:
+        """React to welcome header visibility changes."""
         header = self.query_one("#welcome-header")
-        header.display = False
+        header.display = show_welcome
+
+    def watch__agent_running(self, agent_running: bool) -> None:
+        """React to agent running state changes."""
+        try:
+            spinner = self.query_one("#spinner")
+            spinner.display = agent_running
+            if not agent_running:
+                chat_history = self.query_one("#chat-history", ChatHistoryPanel)
+                chat_history.clear_pending_border()
+                query_input = self.query_one("#query-input", Input)
+                query_input.focus()
+        except Exception:
+            pass
 
     def _process_agent_message_for_reconstruction(
         self, content: str, chat_history: ChatHistoryPanel
@@ -336,9 +347,6 @@ class ChatScreen(Screen):
             )
             asyncio.create_task(self._add_user_message(session.id, query))
 
-        spinner = self.query_one("#spinner")
-        spinner.display = True
-
         self._agent_running = True
         self.run_worker(
             self._run_agent(query),
@@ -429,9 +437,6 @@ Any other command starting with / will be sent to the AI agent.
 
     def _send_to_agent(self, query: str, chat_history: ChatHistoryPanel) -> None:
         """Send query to agent (for unrecognized slash commands)."""
-        spinner = self.query_one("#spinner")
-        spinner.display = True
-
         session = self.session_manager.get_current_session()
         if session and session.id:
             self.run_worker(
@@ -513,7 +518,6 @@ Any other command starting with / will be sent to the AI agent.
     async def _run_agent(self, query: str) -> None:
         """Run the agent query in a worker thread with streaming."""
         chat_history = self.query_one("#chat-history", ChatHistoryPanel)
-        spinner = self.query_one("#spinner")
         query_time = self.query_one("#query-time", Static)
 
         self._query_count += 1
@@ -523,7 +527,7 @@ Any other command starting with / will be sent to the AI agent.
         self._action_tab_ids = []
 
         query_section, steps_tabs, final_container = chat_history.add_query_section(
-            query, current_query_num
+            query, current_query_num, animate=True
         )
 
         self._current_steps_tabs = steps_tabs
@@ -764,11 +768,6 @@ Any other command starting with / will be sent to the AI agent.
                     logger.warning(f"Could not save agent steps: {e}")
 
             self._agent_running = False
-
-            def hide_spinner():
-                spinner.display = False
-                chat_history.clear_pending_border()
-                query_input_widget = self.query_one("#query-input", Input)
-                query_input_widget.focus()
-
-            self.call_later(hide_spinner)
+            chat_history.clear_pending_border()
+            query_input_widget = self.query_one("#query-input", Input)
+            query_input_widget.focus()

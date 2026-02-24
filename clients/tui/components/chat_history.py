@@ -16,7 +16,7 @@ class ChatHistoryPanel(Static):
         self._query_sections: list[Vertical] = []
 
     def add_query_section(
-        self, query_text: str, query_number: int
+        self, query_text: str, query_number: int, animate: bool = False
     ) -> tuple[Vertical, "StepsTabbedContent", Static]:
         """Create a new query section with tabs. Returns (container, steps_tabs, final_container)."""
         query_section = Vertical(
@@ -24,6 +24,10 @@ class ChatHistoryPanel(Static):
         )
 
         self.mount(query_section)
+
+        if animate:
+            query_section.styles.opacity = 0
+            query_section.styles.animate("opacity", value=1, duration=0.2)
 
         query_section.mount(Static(f"> {query_text}", classes="query-text"))
 
