@@ -20,6 +20,7 @@ class ChatApp(App):
 
     CSS_PATH = [
         "styles.tcss",
+        "widgets/step_tabs.tcss",
         "modals/configure_modal.tcss",
         "modals/theme_picker.tcss",
         "modals/session_picker.tcss",
@@ -68,23 +69,38 @@ class ChatApp(App):
             self.theme = "nord"
 
     async def switch_to_session(self, session_id: int) -> None:
+        logger.info(
+            f"switch_to_session: switching from {self._current_session_id} to {session_id}"
+        )
         if self._current_session_id and self.agent:
             try:
                 agent_steps = pickle.dumps(self.agent.memory.steps)
                 await self.session_manager.save_agent_steps(
                     self._current_session_id, agent_steps
                 )
+                logger.info(
+                    f"Saved {len(self.agent.memory.steps)} steps before switching"
+                )
             except Exception as e:
                 logger.warning(f"Could not save agent steps: {e}")
+        else:
+            logger.info(
+                f"Not saving steps - _current_session_id={self._current_session_id}, agent={self.agent}"
+            )
 
         await self.session_manager.switch_session(session_id)
         self._current_session_id = session_id
+        logger.info(f"Set _current_session_id to {session_id}")
 
         if self.agent:
             saved_steps = await self.session_manager.get_agent_steps(session_id)
+            logger.info(
+                f"Got saved_steps for session {session_id}: {len(saved_steps) if saved_steps else 0} bytes"
+            )
             if saved_steps:
                 try:
                     self.agent.memory.steps = pickle.loads(saved_steps)
+                    logger.info(f"Restored {len(self.agent.memory.steps)} steps")
                 except Exception as e:
                     logger.warning(f"Could not restore agent steps: {e}")
 

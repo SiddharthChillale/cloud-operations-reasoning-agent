@@ -107,10 +107,20 @@ class ChatScreen(Screen):
     async def _load_session_and_history(self) -> None:
         """Load session from DB and display chat history."""
         session = self.session_manager.get_current_session()
+        has_restored_steps = False
 
         # If no current session in memory, try to get the active one from DB
         if session is None:
             session = await self.session_manager.get_or_create_session()
+
+        # Set app's _current_session_id if not set
+        if session and session.id:
+            if (
+                not hasattr(self.app, "_current_session_id")
+                or self.app._current_session_id is None
+            ):
+                self.app._current_session_id = session.id
+                logger.debug(f"Set app._current_session_id to {session.id}")
 
         if session and session.id:
             fresh_session = await self.session_manager.get_session(session.id)
@@ -122,12 +132,19 @@ class ChatScreen(Screen):
                 )
 
             saved_steps = await self.session_manager.get_agent_steps(session.id)
+            logger.info(
+                f"Got saved_steps for session {session.id}: {len(saved_steps) if saved_steps else 0} bytes"
+            )
+            has_restored_steps = False
             if saved_steps:
                 try:
                     self.agent.memory.steps = pickle.loads(saved_steps)
+                    has_restored_steps = len(self.agent.memory.steps) > 0
                     logger.info(
                         f"Restored {len(self.agent.memory.steps)} steps for session {session.id}"
                     )
+                    for i, step in enumerate(self.agent.memory.steps):
+                        logger.info(f"  Restored step {i}: {type(step).__name__}")
                 except Exception as e:
                     logger.warning(f"Could not restore agent steps: {e}")
 
@@ -176,7 +193,7 @@ class ChatScreen(Screen):
                         )
                         self._current_steps_tabs = steps_tabs
                         self._current_final_container = final_container
-                    elif msg.role == MessageRole.AGENT:
+                    elif msg.role == MessageRole.AGENT and not has_restored_steps:
                         self._process_agent_message_for_reconstruction(
                             msg.content, chat_history
                         )
@@ -198,13 +215,15 @@ class ChatScreen(Screen):
                             )
                             self._current_steps_tabs = steps_tabs
                             self._current_final_container = final_container
-                            self._process_agent_message_for_reconstruction(
-                                content, chat_history
-                            )
+                            if not has_restored_steps:
+                                self._process_agent_message_for_reconstruction(
+                                    content, chat_history
+                                )
 
             if session.messages:
                 pass
             logger.info(f"Reconstructed {self._query_count} query sections")
+            self._reconstruct_from_restored_steps()
         else:
             logger.debug("Started fresh session")
 
@@ -258,6 +277,111 @@ class ChatScreen(Screen):
                 query_input.focus()
         except Exception:
             pass
+
+    def _reconstruct_from_restored_steps(self) -> None:
+        """Reconstruct UI from restored ActionStep and PlanningStep objects."""
+        if not hasattr(self, "agent") or not self.agent.memory:
+            logger.debug("_reconstruct_from_restored_steps: no agent or memory")
+            return
+
+        steps = getattr(self.agent.memory, "steps", [])
+        if not steps:
+            logger.debug("No restored steps to reconstruct")
+            return
+
+        logger.info(f"Reconstructing UI from {len(steps)} restored steps")
+        logger.info(f"  _current_steps_tabs: {self._current_steps_tabs}")
+        logger.info(f"  _current_final_container: {self._current_final_container}")
+
+        for i, step in enumerate(steps):
+            logger.info(f"  Step {i}: {type(step).__name__}")
+            if isinstance(step, ActionStep):
+                logger.info(f"    is_final_answer: {step.is_final_answer}")
+                logger.info(
+                    f"    model_output: {repr(step.model_output)[:100] if step.model_output else None}"
+                )
+                logger.info(
+                    f"    code_action: {repr(step.code_action)[:100] if step.code_action else None}"
+                )
+                logger.info(
+                    f"    observations: {repr(step.observations)[:100] if step.observations else None}"
+                )
+            elif isinstance(step, PlanningStep):
+                logger.info(f"    plan: {repr(step.plan)[:100] if step.plan else None}")
+
+        for step in steps:
+            if isinstance(step, PlanningStep):
+                if self._current_steps_tabs:
+                    plan_content = step.plan or ""
+                    try:
+                        self._current_steps_tabs.add_planning_tab(plan_content)
+                    except Exception as e:
+                        logger.warning(f"Could not add restored planning tab: {e}")
+
+            elif isinstance(step, ActionStep):
+                if step.is_final_answer:
+                    if self._current_final_container:
+                        answer_text = step.action_output if step.action_output else ""
+                        if isinstance(answer_text, list):
+                            answer_text = str(answer_text)
+                        elif not isinstance(answer_text, str):
+                            answer_text = str(answer_text)
+                        try:
+                            final_answer_md = TextualMarkdown(
+                                answer_text,
+                                id=f"final-answer-markdown-{self._query_count}",
+                            )
+                            self._current_final_container.update("")
+                            self._current_final_container.mount(final_answer_md)
+                            self._current_final_container.add_class("visible")
+                        except Exception as e:
+                            logger.warning(f"Could not add restored final answer: {e}")
+                else:
+                    if self._current_steps_tabs:
+                        step_num = step.step_number
+                        thought = ""
+                        if step.model_output:
+                            if isinstance(step.model_output, list):
+                                texts = []
+                                for item in step.model_output:
+                                    if (
+                                        isinstance(item, dict)
+                                        and item.get("type") == "text"
+                                    ):
+                                        texts.append(item.get("text", ""))
+                                thought = (
+                                    "\n".join(texts)
+                                    if texts
+                                    else str(step.model_output)
+                                )
+                            elif isinstance(step.model_output, str):
+                                thought = step.model_output
+                            elif isinstance(step.model_output, dict):
+                                thought = (
+                                    step.model_output.get("thought")
+                                    or step.model_output.get("text")
+                                    or step.model_output.get("reasoning")
+                                    or str(step.model_output)
+                                )
+                            else:
+                                thought = (
+                                    str(step.model_output) if step.model_output else ""
+                                )
+
+                        code = step.code_action or ""
+                        observations = step.observations or ""
+
+                        try:
+                            tab_id = self._current_steps_tabs.add_action_tab(step_num)
+                            self._action_tab_ids.append(tab_id)
+                            self._current_steps_tabs.update_action_tab(
+                                tab_id,
+                                thought=thought,
+                                code=code,
+                                observations=observations,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not add restored action step: {e}")
 
     def _process_agent_message_for_reconstruction(
         self, content: str, chat_history: ChatHistoryPanel

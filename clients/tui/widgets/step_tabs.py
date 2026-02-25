@@ -17,45 +17,6 @@ logger.setLevel(logging.DEBUG)
 class StepsTabbedContent(Vertical):
     """Container for step tabs with dynamic tab management."""
 
-    DEFAULT_CSS = """
-    StepsTabbedContent {
-        height: 30vh;
-        border: solid $panel;
-        margin: 1 0;
-    }
-    
-    StepsTabbedContent > TabbedContent {
-        height: 100%;
-    }
-    
-    StepsTabbedContent > TabbedContent > TabPane {
-        height: 100%;
-        padding: 1;
-    }
-    
-    StepsTabbedContent > TabbedContent > TabPane VerticalScroll {
-        height: 100%;
-        scrollbar-size-vertical: 1;
-    }
-    
-    StepsTabbedContent .section-label {
-        color: $accent;
-        text-style: bold;
-        margin-top: 1;
-        padding: 0 1;
-    }
-    
-    StepsTabbedContent .thought-text {
-        color: $text-muted;
-        padding: 0 1;
-    }
-    
-    StepsTabbedContent .code-text {
-        background: $surface;
-        padding: 1;
-    }
-    """
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._step_counter = 0
@@ -100,7 +61,7 @@ class StepsTabbedContent(Vertical):
         pane = TabPane(tab_label, id=tab_id)
         self._tabbed_content.add_pane(pane)
 
-        pane_content = VerticalScroll(id=f"{tab_id}-content")
+        pane_content = VerticalScroll(id=f"{tab_id}-content", classes="plan-pane-content")
         pane.mount(pane_content)
 
         markdown_widget = None

@@ -118,7 +118,9 @@ class WelcomeScreen(Screen):
             )
 
     async def _create_session_and_navigate(self, query: str, title: str) -> None:
-        await self.session_manager.create_session(title)
+        session = await self.session_manager.create_session(title)
+        if session and session.id:
+            self.app_ref._current_session_id = session.id
 
         chat_screen = ChatScreen(self.session_manager, self.agent)
         chat_screen.run_query_on_mount(query)

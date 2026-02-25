@@ -1,0 +1,40 @@
+StepsTabbedContent {
+    height: 50%;
+    border: solid $panel;
+    margin: 1 0;
+}
+
+StepsTabbedContent > TabbedContent {
+    height: 100%;
+}
+
+StepsTabbedContent > TabbedContent > TabPane {
+    height: 100%;
+    padding: 1;
+}
+
+StepsTabbedContent > TabbedContent > TabPane VerticalScroll {
+    height: 100%;
+    scrollbar-size-vertical: 1;
+}
+
+.plan_pane_content{
+    border: solid red;
+}
+
+StepsTabbedContent .section-label {
+    color: $accent;
+    text-style: bold;
+    margin-top: 1;
+    padding: 0 1;
+}
+
+StepsTabbedContent .thought-text {
+    color: $text-muted;
+    padding: 0 1;
+}
+
+StepsTabbedContent .code-text {
+    background: $surface;
+    padding: 1;
+}

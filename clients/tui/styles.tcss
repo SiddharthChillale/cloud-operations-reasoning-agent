@@ -203,8 +203,8 @@ Screen {
 }
 
 .query-section {
-    height: auto;
-    min-height: 35vh;
+    height: 100vh;
+    min-height: 0;
     padding: 1;
     background: $surface;
     border: solid $panel;
