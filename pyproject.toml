@@ -13,7 +13,7 @@ dependencies = [
     "langfuse>=3.14.4",
     "openinference-instrumentation-smolagents>=0.1.22",
     "pyyaml>=6.0.0",
-    "smolagents[telemetry]>=1.24.0",
+    "smolagents[modal,telemetry]>=1.24.0",
     "textual>=8.0.0",
     "uvicorn>=0.24.0",
     "pyfiglet>=1.0.0",
@@ -22,7 +22,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-modal = ["modal>=0.0.1"]
 
 [build-system]
 requires = ["hatchling"]

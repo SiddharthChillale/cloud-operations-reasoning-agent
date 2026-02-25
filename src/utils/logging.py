@@ -2,10 +2,11 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
-
+from pathlib import Path
 
 def setup_logging(log_dir: str | None = None) -> logging.Logger:
-    log_dir = log_dir or os.getenv("LOG_DIR", "logs")
+    LOG_PATH = Path.home() / ".cora"
+    log_dir = log_dir or os.getenv("LOG_DIR", LOG_PATH)
     log_level_str = os.getenv("LOG_LEVEL", "INFO")
     log_max_bytes = int(os.getenv("LOG_MAX_BYTES", "10485760"))
     log_backup_count = int(os.getenv("LOG_BACKUP_COUNT", "5"))
@@ -20,7 +21,7 @@ def setup_logging(log_dir: str | None = None) -> logging.Logger:
         maxBytes=log_max_bytes,
         backupCount=log_backup_count,
     )
-    rotating_handler.setLevel(log_level)
+    rotating_handler.setLevel(logging.DEBUG)
 
     stream_handler = logging.StreamHandler(sys.stderr)
     stream_handler.setLevel(log_level)

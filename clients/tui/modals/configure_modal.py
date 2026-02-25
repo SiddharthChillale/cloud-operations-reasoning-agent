@@ -93,6 +93,14 @@ class ConfigureModal(ModalScreen[None]):
                     placeholder="https://cloud.langfuse.com",
                 )
 
+            with Horizontal(classes="form-row"):
+                yield Static("Executor Type:", classes="form-label")
+                yield Input(
+                    self._config.executor_type or "",
+                    id="executor-type",
+                    placeholder="local",
+                )
+
             with Horizontal(id="button-row"):
                 yield Button("Save", id="save-btn", variant="primary")
                 yield Button("Cancel", id="cancel-btn", variant="default")
@@ -114,6 +122,7 @@ class ConfigureModal(ModalScreen[None]):
         langfuse_secret = self.query_one("#langfuse-secret", Input).value.strip()
         langfuse_public = self.query_one("#langfuse-public", Input).value.strip()
         langfuse_url = self.query_one("#langfuse-url", Input).value.strip()
+        executor_type = self.query_one("#executor-type", Input).value.strip()
 
         config_data = {}
 
@@ -139,6 +148,9 @@ class ConfigureModal(ModalScreen[None]):
                 config_data["langfuse"]["public_key"] = langfuse_public
             if langfuse_url:
                 config_data["langfuse"]["base_url"] = langfuse_url
+
+        if executor_type:
+            config_data["executor_type"] = executor_type
 
         config_path = CONFIG_DIR / CONFIG_FILE
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)

@@ -123,7 +123,6 @@ class SessionPickerModal(ModalScreen[None]):
             logger.warning(f"Invalid selected_index: {self._selected_index}")
 
     async def _switch_and_open(self, session_id: int) -> None:
-        logger.info(f"Switching to session {session_id}")
         await self.app.switch_to_session(session_id)
         self.app.pop_screen()
         from clients.tui.screens import ChatScreen

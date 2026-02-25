@@ -74,9 +74,6 @@ class ChatApp(App):
                 await self.session_manager.save_agent_steps(
                     self._current_session_id, agent_steps
                 )
-                logger.info(
-                    f"Saved {len(self.agent.memory.steps)} steps when switching from session {self._current_session_id}"
-                )
             except Exception as e:
                 logger.warning(f"Could not save agent steps: {e}")
 
@@ -88,9 +85,6 @@ class ChatApp(App):
             if saved_steps:
                 try:
                     self.agent.memory.steps = pickle.loads(saved_steps)
-                    logger.info(
-                        f"Restored {len(self.agent.memory.steps)} steps for session {session_id}"
-                    )
                 except Exception as e:
                     logger.warning(f"Could not restore agent steps: {e}")
 

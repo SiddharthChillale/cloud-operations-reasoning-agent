@@ -124,6 +124,12 @@ class Config:
         )
 
     @property
+    def executor_type(self) -> Optional[str]:
+        return _get_env_or_config(
+            self._config, "executor_type", env_var="EXECUTOR_TYPE"
+        )
+
+    @property
     def theme(self) -> str:
         return _get_env_or_config(self._config, "theme") or DEFAULT_THEME
 

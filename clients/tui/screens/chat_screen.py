@@ -45,6 +45,7 @@ class ChatScreen(Screen):
         self._current_steps_tabs = None
         self._current_final_container = None
         self._pending_query: str | None = None
+        self._original_session_id: int | None = None
 
     def _scroll_to_bottom(self, widget) -> None:
         """Scroll a widget to its bottom."""
@@ -106,6 +107,10 @@ class ChatScreen(Screen):
     async def _load_session_and_history(self) -> None:
         """Load session from DB and display chat history."""
         session = self.session_manager.get_current_session()
+
+        # If no current session in memory, try to get the active one from DB
+        if session is None:
+            session = await self.session_manager.get_or_create_session()
 
         if session and session.id:
             fresh_session = await self.session_manager.get_session(session.id)
@@ -206,9 +211,21 @@ class ChatScreen(Screen):
         if self._pending_query:
             query = self._pending_query
             self._pending_query = None
-            self.call_later(lambda q=query: self._process_query_immediate(q))
+            self.run_worker(self._process_query_immediate(query), exclusive=True)
 
-    def _process_query_immediate(self, query: str) -> None:
+    async def _process_query_immediate(self, query: str) -> None:
+        """Process a query that was passed on mount (e.g., from welcome screen)."""
+        # Get the session - same logic as _process_query
+        session = self.session_manager.get_current_session()
+
+        # If no current session in memory, try to get the active one from DB
+        if session is None:
+            session = await self.session_manager.get_or_create_session()
+
+        if session and session.id:
+            self._original_session_id = session.id
+            await self._add_user_message(session.id, query)
+
         self._first_query_sent = True
         self._agent_running = True
         self.run_worker(
@@ -220,14 +237,14 @@ class ChatScreen(Screen):
         self._pending_query = query
 
     @on(Input.Submitted, "#query-input")
-    def _handle_input_submit(self, event: Input.Submitted) -> None:
+    async def _handle_input_submit(self, event: Input.Submitted) -> None:
         """Handle when user presses Enter in the input field."""
-        self._process_query()
+        await self._process_query()
 
     @on(Button.Pressed, "#send-btn")
-    def _handle_button_press(self, event: Button.Pressed) -> None:
+    async def _handle_button_press(self, event: Button.Pressed) -> None:
         """Handle when user clicks the Send button."""
-        self._process_query()
+        await self._process_query()
 
     def watch__agent_running(self, agent_running: bool) -> None:
         """React to agent running state changes."""
@@ -296,57 +313,46 @@ class ChatScreen(Screen):
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Could not parse agent step: {e}")
 
-    def _process_query(self) -> None:
+    async def _process_query(self) -> None:
         """Process the user's query."""
-        query_input = self.query_one("#query-input", Input)
-        chat_history = self.query_one("#chat-history", ChatHistoryPanel)
+        try:
+            query_input = self.query_one("#query-input", Input)
+            chat_history = self.query_one("#chat-history", ChatHistoryPanel)
 
-        query = query_input.value.strip()
+            query = query_input.value.strip()
 
-        if not query:
-            return
+            if not query:
+                return
 
-        query_input.value = ""
+            query_input.value = ""
 
-        if query.startswith("/"):
-            self._handle_slash_command(query, chat_history)
-            return
+            if query.startswith("/"):
+                self._handle_slash_command(query, chat_history)
+                return
 
-        if not self._first_query_sent:
-            self._first_query_sent = True
-            title = query[:50] + "..." if len(query) > 50 else query
+            if not self._first_query_sent:
+                self._first_query_sent = True
+                title = query[:50] + "..." if len(query) > 50 else query
+                session = self.session_manager.get_current_session()
+                if session and session.id:
+                    session.title = title
+                    try:
+                        await self._update_session_title(session.id, title)
+                    except Exception as e:
+                        logger.warning(f"Could not update session title: {e}")
+
             session = self.session_manager.get_current_session()
             if session and session.id:
-                session.title = title
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(
-                            self._update_session_title(session.id, title)
-                        )
-                    else:
-                        loop.run_until_complete(
-                            self._update_session_title(session.id, title)
-                        )
-                except Exception as e:
-                    logger.warning(f"Could not update session title: {e}")
+                self._original_session_id = session.id
+                await self._add_user_message(session.id, query)
 
-        logger.info(f"_process_query: about to save user message, query='{query}'")
-        session = self.session_manager.get_current_session()
-        logger.info(
-            f"_process_query: session={session}, session.id={session.id if session else None}"
-        )
-        if session and session.id:
-            logger.info(
-                "_process_query: calling asyncio.create_task for _add_user_message"
+            self._agent_running = True
+            self.run_worker(
+                self._run_agent(query),
+                exclusive=True,
             )
-            asyncio.create_task(self._add_user_message(session.id, query))
-
-        self._agent_running = True
-        self.run_worker(
-            self._run_agent(query),
-            exclusive=True,
-        )
+        except Exception as e:
+            logger.exception(f"_process_query: error: {e}")
 
     def _handle_slash_command(self, query: str, chat_history: ChatHistoryPanel) -> None:
         """Handle slash commands."""
@@ -608,12 +614,11 @@ Any other command starting with / will be sent to the AI agent.
                         except Exception as e:
                             logger.exception(f"Error in add_planning: {e}")
 
-                    self.call_later(add_planning)
-
-                    session = self.session_manager.get_current_session()
-                    if session and session.id:
+                    if self._original_session_id:
                         content = f"Plan {len(self._planning_tab_ids)}\n{plan_text}"
-                        asyncio.create_task(self._save_agent_step(session.id, content))
+                        await self._save_agent_step(self._original_session_id, content)
+
+                    self.call_later(add_planning)
 
                     continue
 
@@ -685,10 +690,7 @@ Any other command starting with / will be sent to the AI agent.
                             except Exception as e:
                                 logger.exception(f"Error in add_action_step: {e}")
 
-                        self.call_later(add_action_step)
-
-                        session = self.session_manager.get_current_session()
-                        if session and session.id:
+                        if self._original_session_id:
                             content = f"Step {step_number}"
                             if model_output:
                                 content += f"\n{model_output}"
@@ -696,9 +698,11 @@ Any other command starting with / will be sent to the AI agent.
                                 content += f"\nCode: {code_action}"
                             if execution_result:
                                 content += f"\nResult: {execution_result}"
-                            asyncio.create_task(
-                                self._save_agent_step(session.id, content)
+                            await self._save_agent_step(
+                                self._original_session_id, content
                             )
+
+                        self.call_later(add_action_step)
 
                 elif hasattr(step, "is_final_answer") and step.is_final_answer:
                     answer_text = getattr(step, "action_output", None) or getattr(
@@ -708,11 +712,11 @@ Any other command starting with / will be sent to the AI agent.
                         answer_text = str(answer_text)
                     elif not isinstance(answer_text, str):
                         answer_text = str(answer_text)
-                    session = self.session_manager.get_current_session()
-                    if session and session.id:
+
+                    if self._original_session_id:
                         answer_content = f"Final Answer:\n{answer_text}"
-                        asyncio.create_task(
-                            self._save_agent_step(session.id, answer_content)
+                        await self._save_agent_step(
+                            self._original_session_id, answer_content
                         )
 
                     await self._update_token_counts(save_to_db=True)
@@ -775,6 +779,7 @@ Any other command starting with / will be sent to the AI agent.
                     logger.warning(f"Could not save agent steps: {e}")
 
             self._agent_running = False
+            self._original_session_id = None
             chat_history.clear_pending_border()
             query_input_widget = self.query_one("#query-input", Input)
             query_input_widget.focus()
