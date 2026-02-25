@@ -234,13 +234,19 @@ console.print(Panel("[bold cyan]Title[/bold cyan]", expand=False))
 ├── src/                    # Core application code
 │   ├── agents/             # Agent implementations
 │   │   ├── __init__.py
-│   │   └── aws_agent.py
+│   │   ├── aws_agent.py    # cora_agent() factory
+│   │   └── factory.py      # SessionAgentFactory for multi-session support
 │   ├── tools/              # Tool definitions
 │   │   ├── __init__.py
 │   │   └── aws_tools.py
 │   ├── models/             # Model configurations
 │   │   ├── __init__.py
 │   │   └── openrouter_model.py
+│   ├── session/            # Session management
+│   │   ├── __init__.py
+│   │   ├── database.py    # SessionDatabase (SQLite)
+│   │   ├── manager.py      # SessionManager with load/save agent state
+│   │   └── models.py       # Message, Session dataclasses
 │   └── utils/              # Utilities
 │       ├── __init__.py
 │       └── logging.py
@@ -251,6 +257,8 @@ console.print(Panel("[bold cyan]Title[/bold cyan]", expand=False))
 │   └── tui/               # Textual TUI interface
 │       ├── __init__.py
 │       └── app.py
+├── docs/                   # Documentation
+│   └── api.md             # Web UI API with SSE streaming
 └── tests/                 # Test files (when added)
 ```
 
@@ -272,6 +280,8 @@ Key dependencies (from `pyproject.toml`):
 - AWS profile "notisphere" is hardcoded for boto3 sessions
 - The agent is configured with `additional_authorized_imports=["botocore.exceptions"]`
 - Use `uv run` prefix for all commands to ensure dependencies are available
+- Session state persistence uses pickle serialization (GitHub issue #1216)
+- Use `SessionAgentFactory` for multi-session agent management with proper memory isolation
 
 ## Textual App Development Skill
 

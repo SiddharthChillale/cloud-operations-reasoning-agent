@@ -13,7 +13,7 @@ class MessageRole(str, Enum):
 @dataclass
 class Message:
     id: Optional[int] = None
-    session_id: int = 0
+    session_id: str = ""  # UUID
     role: MessageRole = MessageRole.USER
     content: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
@@ -21,7 +21,7 @@ class Message:
 
 @dataclass
 class Session:
-    id: Optional[int] = None
+    id: str = ""  # UUID
     title: str = "New Session"
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
