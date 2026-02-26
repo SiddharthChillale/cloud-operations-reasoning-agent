@@ -1,0 +1,8 @@
+<div class="chat {% if (message is defined and message.role.value == 'user') or role == 'user' %}chat-end{% else %}chat-start{% endif %}">
+    <div class="chat-header opacity-70 text-xs">
+        {% if message is defined %}{{ message.role.value|title }}{% else %}{{ role|title }}{% endif %}
+    </div>
+    <div class="chat-bubble {% if (message is defined and message.role.value == 'user') or role == 'user' %}chat-bubble-primary{% else %}chat-bubble-secondary{% endif %}">
+        {% if message is defined %}{{ message.content }}{% else %}{{ content }}{% endif %}
+    </div>
+</div>

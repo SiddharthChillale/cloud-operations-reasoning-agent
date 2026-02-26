@@ -1,0 +1,19 @@
+<div class="p-4">
+    <h2 class="text-sm font-semibold text-base-content/60 mb-2">Sessions</h2>
+    <ul class="menu menu-sm p-0">
+        {% for session in sessions %}
+        <li>
+            <a href="/sessions/{{ session.id }}" 
+               class="{% if current_session and current_session.id == session.id %}active{% endif %}"
+               hx-push-url="true">
+                <span class="truncate">{{ session.title }}</span>
+                {% if session.status.value == 'running' %}
+                <span class="badge badge-sm badge-warning">Running</span>
+                {% endif %}
+            </a>
+        </li>
+        {% else %}
+        <li><span class="text-base-content/50 text-sm p-2">No sessions yet</span></li>
+        {% endfor %}
+    </ul>
+</div>

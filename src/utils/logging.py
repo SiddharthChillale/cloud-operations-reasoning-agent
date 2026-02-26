@@ -4,7 +4,10 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-def setup_logging(log_dir: str | None = None) -> logging.Logger:
+
+def setup_logging(
+    log_dir: str | None = None, log_file: str = "app.log"
+) -> logging.Logger:
     LOG_PATH = Path.home() / ".cora"
     log_dir = log_dir or os.getenv("LOG_DIR", LOG_PATH)
     log_level_str = os.getenv("LOG_LEVEL", "INFO")
@@ -14,7 +17,7 @@ def setup_logging(log_dir: str | None = None) -> logging.Logger:
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
 
     os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, "app.log")
+    log_file = os.path.join(log_dir, log_file)
 
     rotating_handler = RotatingFileHandler(
         log_file,

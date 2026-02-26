@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORA - Cloud Operations Reasoning Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/index.min.js"></script>
+    <style>
+        .htmx-indicator {
+            display: none;
+        }
+        .htmx-request .htmx-indicator {
+            display: inline;
+        }
+        .htmx-request.htmx-indicator {
+            display: inline;
+        }
+        .markdown-content h1 { font-size: 1.5em; font-weight: bold; margin: 0.5em 0; }
+        .markdown-content h2 { font-size: 1.25em; font-weight: bold; margin: 0.5em 0; }
+        .markdown-content h3 { font-size: 1.1em; font-weight: bold; margin: 0.5em 0; }
+        .markdown-content p { margin: 0.5em 0; }
+        .markdown-content ul, .markdown-content ol { margin: 0.5em 0; padding-left: 1.5em; }
+        .markdown-content code { background: #f4f4f4; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+        .markdown-content pre { margin: 0.5em 0; }
+        .markdown-content pre code { background: transparent; padding: 0; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+    <!-- Navbar -->
+    {% include "navbar.html" %}
+    
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-base-200 flex-shrink-0 overflow-y-auto border-r border-base-300">
+            {% include "sidebar.html" %}
+        </aside>
+        
+        <!-- Main Content -->
+        <main id="main-content" class="flex-1 overflow-y-auto bg-base-100">
+            {% if current_session %}
+                {% include "chat.html" %}
+            {% else %}
+                {% include "welcome.html" %}
+            {% endif %}
+        </main>
+    </div>
+</body>
+</html>

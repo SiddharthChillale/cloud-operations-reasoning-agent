@@ -1,0 +1,29 @@
+<div class="collapse collapse-arrow border rounded-lg mb-2 bg-base-200">
+    <input type="checkbox" />
+    <div class="collapse-title font-semibold">Step {{ step_number }}</div>
+    <div class="collapse-content">
+        {% if model_output %}
+        <div class="italic text-base-content/80 mb-2">{{ model_output }}</div>
+        {% endif %}
+        
+        {% if code_action %}
+        <div class="mockup-code text-sm">
+            <pre><code class="language-python">{{ code_action }}</code></pre>
+        </div>
+        {% endif %}
+        
+        {% if observations %}
+        <div class="mt-2 markdown-content">{{ observations }}</div>
+        {% endif %}
+        
+        {% if error %}
+        <div class="alert alert-error mt-2">{{ error }}</div>
+        {% endif %}
+        
+        {% if token_usage %}
+        <div class="text-xs opacity-50 mt-2">
+            Tokens: {{ token_usage.total_tokens }} (in: {{ token_usage.input_tokens }}, out: {{ token_usage.output_tokens }})
+        </div>
+        {% endif %}
+    </div>
+</div>

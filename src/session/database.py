@@ -5,7 +5,7 @@ from typing import Optional
 
 import aiosqlite
 
-from src.session.models import Message, MessageRole, Session
+from src.session.models import Message, MessageRole, Session, SessionStatus
 
 
 class SessionDatabase:
@@ -27,6 +27,7 @@ class SessionDatabase:
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'idle',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     is_active INTEGER NOT NULL DEFAULT 0,
@@ -61,6 +62,7 @@ class SessionDatabase:
                     session_id TEXT NOT NULL,
                     run_number INTEGER NOT NULL,
                     step_number INTEGER NOT NULL DEFAULT 1,
+                    step_type TEXT NOT NULL,
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
                     total_tokens INTEGER NOT NULL DEFAULT 0,
@@ -86,13 +88,14 @@ class SessionDatabase:
         session_id = self._generate_session_id()
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "INSERT INTO sessions (id, title, created_at, updated_at, is_active) VALUES (?, ?, ?, ?, 1)",
-                (session_id, title, now, now),
+                "INSERT INTO sessions (id, title, status, created_at, updated_at, is_active) VALUES (?, ?, ?, ?, ?, 1)",
+                (session_id, title, SessionStatus.IDLE.value, now, now),
             )
             await db.commit()
             return Session(
                 id=session_id,
                 title=title,
+                status=SessionStatus.IDLE,
                 created_at=datetime.now(),
                 updated_at=datetime.now(),
                 is_active=True,
@@ -113,6 +116,7 @@ class SessionDatabase:
                 return Session(
                     id=row["id"],
                     title=row["title"],
+                    status=SessionStatus(row["status"]),
                     created_at=datetime.fromisoformat(row["created_at"]),
                     updated_at=datetime.fromisoformat(row["updated_at"]),
                     is_active=bool(row["is_active"]),
@@ -153,6 +157,7 @@ class SessionDatabase:
                         Session(
                             id=row["id"],
                             title=row["title"],
+                            status=SessionStatus(row["status"]),
                             created_at=datetime.fromisoformat(row["created_at"]),
                             updated_at=datetime.fromisoformat(row["updated_at"]),
                             is_active=bool(row["is_active"]),
@@ -183,6 +188,27 @@ class SessionDatabase:
                 (title, now, session_id),
             )
             await db.commit()
+
+    async def update_session_status(
+        self, session_id: str, status: SessionStatus
+    ) -> None:
+        now = datetime.now().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+                (status.value, now, session_id),
+            )
+            await db.commit()
+
+    async def get_session_status(self, session_id: str) -> Optional[SessionStatus]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT status FROM sessions WHERE id = ?", (session_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                return SessionStatus(row[0])
 
     async def update_session_timestamp(self, session_id: str) -> None:
         now = datetime.now().isoformat()
@@ -270,6 +296,7 @@ class SessionDatabase:
         session_id: str,
         run_number: int,
         step_number: int,
+        step_type: str,
         input_tokens: int,
         output_tokens: int,
     ) -> None:
@@ -278,9 +305,10 @@ class SessionDatabase:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
-                INSERT INTO agent_run_metrics (session_id, run_number, step_number, input_tokens, output_tokens, total_tokens, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO agent_run_metrics (session_id, run_number, step_number, step_type, input_tokens, output_tokens, total_tokens, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, run_number, step_number) DO UPDATE SET
+                    step_type = excluded.step_type,
                     input_tokens = excluded.input_tokens,
                     output_tokens = excluded.output_tokens,
                     total_tokens = excluded.total_tokens,
@@ -290,6 +318,7 @@ class SessionDatabase:
                     session_id,
                     run_number,
                     step_number,
+                    step_type,
                     input_tokens,
                     output_tokens,
                     total_tokens,
@@ -315,6 +344,7 @@ class SessionDatabase:
                     "session_id": row["session_id"],
                     "run_number": row["run_number"],
                     "step_number": row["step_number"],
+                    "step_type": row["step_type"],
                     "input_tokens": row["input_tokens"],
                     "output_tokens": row["output_tokens"],
                     "total_tokens": row["total_tokens"],
@@ -345,6 +375,7 @@ class SessionDatabase:
             steps = [
                 {
                     "step_number": row["step_number"],
+                    "step_type": row["step_type"],
                     "input_tokens": row["input_tokens"],
                     "output_tokens": row["output_tokens"],
                     "total_tokens": row["total_tokens"],
@@ -474,6 +505,7 @@ class SessionDatabase:
                         "session_id": row["session_id"],
                         "run_number": row["run_number"],
                         "step_number": row["step_number"],
+                        "step_type": row["step_type"],
                         "input_tokens": row["input_tokens"],
                         "output_tokens": row["output_tokens"],
                         "total_tokens": row["total_tokens"],

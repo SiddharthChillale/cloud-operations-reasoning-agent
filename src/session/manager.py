@@ -135,13 +135,11 @@ class SessionManager:
             )
         return None
 
-    def load_agent_state(self, session_id: str) -> list:
+    async def load_agent_state(self, session_id: str) -> list:
         """Load agent memory steps from database for a session."""
         agent_steps_bytes = self.get_current_agent_steps()
         if not agent_steps_bytes:
-            agent_steps_bytes = asyncio.get_event_loop().run_until_complete(
-                self.get_agent_steps(session_id)
-            )
+            agent_steps_bytes = await self.get_agent_steps(session_id)
 
         if not agent_steps_bytes:
             return []
@@ -152,30 +150,33 @@ class SessionManager:
             logger.warning(f"Failed to load agent state for session {session_id}: {e}")
             return []
 
-    def extract_tokens_from_step(self, step) -> Optional[dict]:
+    def extract_tokens_from_step(self, step, step_index: int = 0) -> Optional[dict]:
         """Extract token usage from an ActionStep or PlanningStep."""
         if not hasattr(step, "token_usage") or not step.token_usage:
             return None
 
         tu = step.token_usage
+        step_type = type(step).__name__
         return {
-            "step_number": step.step_number,
+            "step_number": step_index + 1,
+            "step_type": step_type,
             "input_tokens": getattr(tu, "input_tokens", 0),
             "output_tokens": getattr(tu, "output_tokens", 0),
             "total_tokens": getattr(tu, "total_tokens", 0),
         }
 
     async def save_step_token_from_step(
-        self, session_id: str, run_number: int, step
+        self, session_id: str, run_number: int, step_index: int, step
     ) -> None:
         """Extract and save token usage from a step (non-blocking)."""
-        token_data = self.extract_tokens_from_step(step)
+        token_data = self.extract_tokens_from_step(step, step_index)
         if token_data:
             try:
                 await self.db.save_step_token(
                     session_id,
                     run_number,
                     token_data["step_number"],
+                    token_data["step_type"],
                     token_data["input_tokens"],
                     token_data["output_tokens"],
                 )
@@ -196,14 +197,14 @@ class SessionManager:
             pickled = pickle.dumps(steps)
             asyncio.create_task(self.save_agent_steps(session_id, pickled))
 
-            for step in steps:
+            for step_index, step in enumerate(steps):
                 try:
                     if isinstance(step, (ActionStep, PlanningStep)):
                         token_usage = getattr(step, "token_usage", None)
                         if token_usage:
                             asyncio.create_task(
                                 self.save_step_token_from_step(
-                                    session_id, run_number, step
+                                    session_id, run_number, step_index, step
                                 )
                             )
                 except Exception:

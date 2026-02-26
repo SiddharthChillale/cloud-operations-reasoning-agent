@@ -10,6 +10,12 @@ class MessageRole(str, Enum):
     SYSTEM = "system"
 
 
+class SessionStatus(str, Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    COMPLETED = "completed"
+
+
 @dataclass
 class Message:
     id: Optional[int] = None
@@ -23,6 +29,7 @@ class Message:
 class Session:
     id: str = ""  # UUID
     title: str = "New Session"
+    status: SessionStatus = SessionStatus.IDLE
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     is_active: bool = False
