@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
-import ReactMarkdown from "react-markdown";
 import {
   ArrowLeft,
   Trash2,
@@ -15,6 +14,7 @@ import {
   Code,
   Lightbulb,
   Sparkles,
+  ChevronUp,
 } from "lucide-react";
 import {
   getSession,
@@ -25,6 +25,7 @@ import { Message, SSEMessage } from "@/lib/types";
 import { useChatStream } from "@/lib/useChatStream";
 import { CollapsibleField } from "@/components/CollapsibleField";
 import { CodeBlock } from "@/components/CodeBlock";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 
 function parseThought(modelOutput: string): string {
   try {
@@ -244,7 +245,11 @@ export default function SessionPage() {
                     : "bg-gray-100 text-gray-900"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                {message.role === "user" ? (
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                ) : (
+                  <MarkdownRenderer content={message.content} />
+                )}
               </div>
             </div>
           ))}
@@ -254,30 +259,32 @@ export default function SessionPage() {
               <div className="max-w-3xl w-full">
                 <button
                   onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
-                  className="flex items-center gap-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg px-3 py-2 w-full transition-colors"
+                  className="flex items-center gap-2 text-sm font-medium rounded-lg px-3 py-2 w-full transition-colors"
                 >
-                  {isReasoningExpanded ? (
-                    <ChevronDown className="w-4 h-4" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4" />
-                  )}
                   <Sparkles className="w-4 h-4" />
                   <span>
-                    Reasoning ({planningSteps.length} planning, {actionSteps.length} actions)
+                    Reasoning 
+                    <span className="text-gray-90">({planningSteps.length} planning, {actionSteps.length} actions)</span>
                   </span>
+                  {isReasoningExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
                 </button>
-
-                {isReasoningExpanded && (
-                  <div className="mt-2 space-y-2 pl-2">
-                    {steps.map((step, index) => (
-                      <StepItem
-                        key={index}
-                        step={step}
-                        stepIndex={index}
-                      />
-                    ))}
-                  </div>
-                )}
+                <div className="h-64 overflow-y-auto">
+                  {isReasoningExpanded && (
+                      <div className="pl-2">
+                      {steps.map((step, index) => (
+                        <StepItem
+                          key={index}
+                          step={step}
+                          stepIndex={index}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -285,7 +292,7 @@ export default function SessionPage() {
           {streamingContent && (
             <div className="flex justify-start">
               <div className="max-w-3xl px-4 py-2 rounded-lg bg-gray-100 text-gray-900">
-                <p className="whitespace-pre-wrap">{streamingContent}</p>
+                <MarkdownRenderer content={streamingContent} />
               </div>
             </div>
           )}
@@ -358,16 +365,11 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
   const thought = step.model_output ? parseThought(step.model_output) : "";
 
   return (
-    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 w-full">
+    <div className="p-2 w-full">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex items-center gap-2 text-sm font-medium text-yellow-800 w-full"
       >
-        {isExpanded ? (
-          <ChevronDown className="w-4 h-4 flex-shrink-0" />
-        ) : (
-          <ChevronRight className="w-4 h-4 flex-shrink-0" />
-        )}
         {isPlanning ? (
           <Lightbulb className="w-4 h-4 flex-shrink-0 text-blue-500" />
         ) : (
@@ -377,42 +379,33 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
           Step {step.step_number}: {isPlanning ? "Planning" : "Action"}
         </span>
         {step.error && (
-          <span className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded">
+          <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded">
             Error
           </span>
+        )}
+        {isExpanded ? (
+          <ChevronUp className="w-4 h-4 flex-shrink-0" />
+        ) : (
+          <ChevronDown className="w-4 h-4 flex-shrink-0" />
         )}
       </button>
 
       {isExpanded && (
-        <div className="mt-3 text-sm text-yellow-900 space-y-3 pl-2">
+        <div className="text-sm text-yellow-900 space-y-2 pl-2">
           {isPlanning && step.plan && (
             <div>
-              <button
-                onClick={() => toggleField("plan")}
-                className="flex items-center gap-1 font-medium text-xs uppercase tracking-wide hover:underline text-blue-600"
-              >
-                {isFieldExpanded("plan") ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
-                Plan
-              </button>
-              {isFieldExpanded("plan") && (
-                <div className="mt-2 bg-white rounded p-3 text-xs overflow-x-auto">
-                  <ReactMarkdown>{step.plan}</ReactMarkdown>
+              {isExpanded && (
+                <div className="mt-2 rounded p-2 text-xs overflow-x-auto text-gray-900">
+                  <MarkdownRenderer content={step.plan} stripMarkdown />
                 </div>
               )}
             </div>
           )}
 
           {!isPlanning && thought && (
-            <CollapsibleField
-              label="Thought"
-              content={thought}
-              isExpanded={isFieldExpanded("model_output")}
-              onToggle={() => toggleField("model_output")}
-            />
+            <div className="rounded p-2 text-xs overflow-x-auto text-gray-900">
+                  <MarkdownRenderer content={thought} stripMarkdown />
+            </div>
           )}
 
           {step.code_action && (
@@ -421,12 +414,12 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
                 onClick={() => toggleField("code_action")}
                 className="flex items-center gap-1 font-medium text-xs uppercase tracking-wide hover:underline text-green-600"
               >
-                {isFieldExpanded("code_action") ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
                 Code
+                {isFieldExpanded("code_action") ? (
+                  <ChevronUp className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 flex-shrink-0" />
+                )}
               </button>
               {isFieldExpanded("code_action") && (
                 <div className="mt-2">

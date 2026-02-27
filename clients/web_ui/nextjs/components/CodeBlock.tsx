@@ -1,7 +1,7 @@
 "use client";
 
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { dark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { a11yDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 interface CodeBlockProps {
   code: string;
@@ -13,7 +13,7 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
     <div className="rounded-lg overflow-hidden">
       <SyntaxHighlighter
         language={language}
-        style={dark}
+        style={a11yDark}
         customStyle={{
           margin: 0,
           borderRadius: "0.5rem",
