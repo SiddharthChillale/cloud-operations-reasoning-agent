@@ -1,0 +1,109 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { SSEMessage } from "./types";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+interface UseChatStreamOptions {
+  sessionId: string;
+  onPlanning?: (event: SSEMessage) => void;
+  onAction?: (event: SSEMessage) => void;
+  onFinal?: (output: string) => void;
+  onError?: (error: string) => void;
+  onDone?: () => void;
+}
+
+interface UseChatStreamReturn {
+  isStreaming: boolean;
+  startStream: (query: string) => void;
+  stopStream: () => void;
+}
+
+export function useChatStream({
+  sessionId,
+  onPlanning,
+  onAction,
+  onFinal,
+  onError,
+  onDone,
+}: UseChatStreamOptions): UseChatStreamReturn {
+  const [isStreaming, setIsStreaming] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const stopStream = useCallback(() => {
+    if (eventSourceRef.current) {
+      console.log("[useChatStream] Closing EventSource");
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setIsStreaming(false);
+  }, []);
+
+  const startStream = useCallback(
+    (query: string) => {
+      console.log("[useChatStream] Starting stream for query:", query);
+      stopStream();
+
+      const url = `${API_BASE}/sessions/${sessionId}/stream?${new URLSearchParams(
+        { query }
+      )}`;
+      console.log("[useChatStream] Connecting to:", url);
+
+      const eventSource = new EventSource(url);
+      eventSourceRef.current = eventSource;
+
+      setIsStreaming(true);
+
+      eventSource.onopen = () => {
+        console.log("[useChatStream] EventSource opened");
+      };
+
+      eventSource.onmessage = (event) => {
+        console.log("[useChatStream] Raw message:", event.data);
+        try {
+          const data = JSON.parse(event.data) as SSEMessage;
+          console.log("[useChatStream] Parsed event:", data.type, data.step_number, data.step_type);
+
+          switch (data.type) {
+            case "planning":
+              onPlanning?.(data);
+              break;
+            case "action":
+              onAction?.(data);
+              break;
+            case "final":
+              onFinal?.(data.output || "");
+              break;
+            case "error":
+              onError?.(data.error || "Unknown error");
+              break;
+            case "done":
+              console.log("[useChatStream] Stream done");
+              onDone?.();
+              stopStream();
+              break;
+          }
+        } catch (e) {
+          console.error("[useChatStream] Failed to parse event:", e);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error("[useChatStream] EventSource error:", error);
+        stopStream();
+      };
+    },
+    [sessionId, stopStream, onPlanning, onAction, onFinal, onError, onDone]
+  );
+
+  useEffect(() => {
+    return () => {
+      stopStream();
+    };
+  }, [stopStream]);
+
+  return {
+    isStreaming,
+    startStream,
+    stopStream,
+  };
+}

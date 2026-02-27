@@ -17,3 +17,7 @@ client/node_modules/
 
 *.logs
 *.log
+
+*node_modules/
+
+clients/web_ui/nextjs/.next/

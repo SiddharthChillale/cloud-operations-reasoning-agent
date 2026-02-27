@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -6,7 +7,9 @@ from typing import Any
 import anyio
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
 from smolagents.memory import ActionStep, PlanningStep, FinalAnswerStep
@@ -46,9 +49,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CORA Web UI", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 
 def is_htmx_request(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
+
+
+def is_json_request(request: Request) -> bool:
+    return "application/json" in request.headers.get("Accept", "")
 
 
 def create_step_callback(session_id: str, run_number: int):
@@ -154,72 +172,156 @@ async def root(request: Request):
     )
 
 
-@app.get("/sessions", response_class=HTMLResponse)
+@app.get("/sessions")
 async def list_sessions(request: Request):
     sessions = await _db.get_all_sessions()
+    if is_json_request(request):
+        return JSONResponse(
+            content={
+                "sessions": [
+                    {
+                        "id": s.id,
+                        "title": s.title,
+                        "status": s.status,
+                        "created_at": s.created_at.isoformat()
+                        if s.created_at
+                        else None,
+                        "updated_at": s.updated_at.isoformat()
+                        if s.updated_at
+                        else None,
+                    }
+                    for s in sessions
+                ]
+            }
+        )
     return templates.TemplateResponse(
         "sidebar.html", {"request": request, "sessions": sessions}
     )
 
 
-@app.post("/sessions", response_class=HTMLResponse)
+@app.post("/sessions")
 async def create_session(request: Request):
-    form_data = await request.form()
-    title = form_data.get("title", "New Chat")
-    if not title or title.strip() == "":
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        body = await request.json()
+        title = body.get("title", "New Chat")
+    else:
+        form_data = await request.form()
+        title = form_data.get("title", "New Chat")
+
+    if not title or (isinstance(title, str) and title.strip() == ""):
         title = "New Chat"
 
     session = await _db.create_session(title)
+
+    if is_json_request(request):
+        return JSONResponse(
+            content={
+                "session_id": session.id,
+                "redirect_url": f"/sessions/{session.id}",
+            }
+        )
     return RedirectResponse(url=f"/sessions/{session.id}", status_code=303)
 
 
-@app.get("/sessions/{session_id}", response_class=HTMLResponse)
+@app.get("/sessions/{session_id}")
 async def get_session(request: Request, session_id: str):
     session = await _db.get_session(session_id)
     if not session:
+        if is_json_request(request):
+            return JSONResponse(content={"error": "Session not found"}, status_code=404)
         return RedirectResponse(url="/", status_code=303)
-
-    sessions = await _db.get_all_sessions()
-    is_htmx = is_htmx_request(request)
 
     tokens = await _session_manager.get_session_tokens(session_id)
 
-    if is_htmx:
-        return templates.TemplateResponse(
-            "main_content.html",
-            {
-                "request": request,
-                "sessions": sessions,
-                "current_session": session,
+    if is_json_request(request):
+        return JSONResponse(
+            content={
+                "session": {
+                    "id": session.id,
+                    "title": session.title,
+                    "status": session.status.value
+                    if hasattr(session.status, "value")
+                    else session.status,
+                    "created_at": session.created_at.isoformat()
+                    if session.created_at
+                    else None,
+                    "updated_at": session.updated_at.isoformat()
+                    if session.updated_at
+                    else None,
+                },
+                "messages": [
+                    {
+                        "id": m.id,
+                        "role": m.role.value if hasattr(m.role, "value") else m.role,
+                        "content": m.content,
+                        "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+                    }
+                    for m in session.messages
+                ],
                 "tokens": tokens,
-            },
+            }
         )
+
+    index_path = STATIC_DIR / "index.html"
+    if index_path.exists():
+        return HTMLResponse(index_path.read_text())
 
     return templates.TemplateResponse(
         "base.html",
         {
             "request": request,
-            "sessions": sessions,
+            "sessions": await _db.get_all_sessions(),
+            "current_session": session,
+            "tokens": tokens,
+        },
+    )
+
+    index_path = STATIC_DIR / "index.html"
+    if index_path.exists():
+        return HTMLResponse(index_path.read_text())
+
+    return templates.TemplateResponse(
+        "base.html",
+        {
+            "request": request,
+            "sessions": await _db.get_all_sessions(),
             "current_session": session,
             "tokens": tokens,
         },
     )
 
 
-@app.patch("/sessions/{session_id}", response_class=HTMLResponse)
+@app.patch("/sessions/{session_id}")
 async def update_session_title(request: Request, session_id: str):
-    form_data = await request.form()
-    title = form_data.get("title", "New Chat")
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        body = await request.json()
+        title = body.get("title", "New Chat")
+    else:
+        form_data = await request.form()
+        title = form_data.get("title", "New Chat")
+
     await _db.update_session_title(session_id, title)
+
+    if is_json_request(request):
+        return JSONResponse(content={"success": True})
+
     sessions = await _db.get_all_sessions()
     return templates.TemplateResponse(
         "sidebar.html", {"request": request, "sessions": sessions}
     )
 
 
-@app.delete("/sessions/{session_id}", response_class=HTMLResponse)
+@app.delete("/sessions/{session_id}")
 async def delete_session(request: Request, session_id: str):
     await _db.delete_session(session_id)
+
+    if is_json_request(request):
+        return JSONResponse(content={"success": True, "redirect_url": "/"})
+
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -254,8 +356,12 @@ async def stream_chat(request: Request, session_id: str):
         agent_exception = None
 
         yield {
-            "data": templates.get_template("message.html").render(
-                role="user", content=query
+            "data": json.dumps(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": query,
+                }
             ),
         }
 
@@ -289,22 +395,9 @@ async def stream_chat(request: Request, session_id: str):
                         event_type = event_data.get("type", "step")
 
                         if event_type == "planning":
-                            html = templates.get_template("step_planning.html").render(
-                                step_number=event_data.get("step_number"),
-                                plan=event_data.get("plan"),
-                                token_usage=event_data.get("token_usage"),
-                            )
-                            yield {"data": html}
+                            yield {"data": json.dumps(event_data)}
                         elif event_type == "action":
-                            html = templates.get_template("step_action.html").render(
-                                step_number=event_data.get("step_number"),
-                                model_output=event_data.get("model_output"),
-                                code_action=event_data.get("code_action"),
-                                observations=event_data.get("observations"),
-                                error=event_data.get("error"),
-                                token_usage=event_data.get("token_usage"),
-                            )
-                            yield {"data": html}
+                            yield {"data": json.dumps(event_data)}
                     except asyncio.TimeoutError:
                         pass
 
@@ -326,8 +419,11 @@ async def stream_chat(request: Request, session_id: str):
             await _db.add_message(session_id, MessageRole.AGENT, final_output)
 
             yield {
-                "data": templates.get_template("step_final.html").render(
-                    output=final_output
+                "data": json.dumps(
+                    {
+                        "type": "final",
+                        "output": final_output,
+                    }
                 ),
             }
 
@@ -337,7 +433,12 @@ async def stream_chat(request: Request, session_id: str):
         except Exception as e:
             logger.exception(f"Agent error: {e}")
             yield {
-                "data": f'<div class="alert alert-error"><span>Error: {str(e)}</span></div>',
+                "data": json.dumps(
+                    {
+                        "type": "error",
+                        "error": str(e),
+                    }
+                ),
             }
             await _db.update_session_status(session_id, SessionStatus.IDLE)
 
@@ -345,12 +446,143 @@ async def stream_chat(request: Request, session_id: str):
             if session_id in _step_queues:
                 del _step_queues[session_id]
 
+        yield {"data": json.dumps({"type": "done"})}
+
     return EventSourceResponse(event_generator())
 
 
-@app.get("/sessions/{session_id}/tokens", response_class=HTMLResponse)
+@app.get("/sessions/{session_id}/stream")
+async def stream_chat_get(request: Request, session_id: str, query: str = ""):
+    if not query:
+        return JSONResponse(
+            content={"error": "Query parameter is required"}, status_code=400
+        )
+
+    session = await _db.get_session(session_id)
+    if not session:
+        return JSONResponse(content={"error": "Session not found"}, status_code=404)
+
+    await _db.add_message(session_id, MessageRole.USER, query)
+    await _db.update_session_status(session_id, SessionStatus.RUNNING)
+
+    run_number = await _session_manager.get_next_run_number(session_id)
+
+    step_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _step_queues[session_id] = step_queue
+
+    step_callback = create_step_callback(session_id, run_number)
+
+    async def event_generator():
+        nonlocal session
+        agent = None
+        agent_task = None
+        response = None
+        agent_completed = False
+        agent_exception = None
+
+        yield {
+            "data": json.dumps(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": query,
+                }
+            ),
+        }
+
+        try:
+            agent = await _agent_factory.get_agent(session_id, step_callback)
+
+            def run_agent():
+                try:
+                    return agent.run(query)
+                except Exception as e:
+                    return e
+
+            async def run_agent_async():
+                nonlocal response, agent_completed, agent_exception
+                try:
+                    response = await anyio.to_thread.run_sync(run_agent)
+                    if isinstance(response, Exception):
+                        agent_exception = response
+                    agent_completed = True
+                except Exception as e:
+                    agent_exception = e
+                    agent_completed = True
+
+            async def read_queue():
+                nonlocal agent_completed
+                while not agent_completed or not step_queue.empty():
+                    try:
+                        event_data = await asyncio.wait_for(
+                            step_queue.get(), timeout=0.5
+                        )
+                        event_type = event_data.get("type", "step")
+
+                        if event_type == "planning":
+                            yield {"data": json.dumps(event_data)}
+                        elif event_type == "action":
+                            yield {"data": json.dumps(event_data)}
+                    except asyncio.TimeoutError:
+                        pass
+
+            agent_task = asyncio.create_task(run_agent_async())
+
+            async for event in read_queue():
+                yield event
+
+            await agent_task
+
+            if agent_exception:
+                raise agent_exception
+
+            for step in agent.memory.steps:
+                _agent_factory.save_agent(agent, session_id, run_number)
+
+            final_output = response if isinstance(response, str) else str(response)
+
+            await _db.add_message(session_id, MessageRole.AGENT, final_output)
+
+            yield {
+                "data": json.dumps(
+                    {
+                        "type": "final",
+                        "output": final_output,
+                    }
+                ),
+            }
+
+            await _db.update_session_status(session_id, SessionStatus.COMPLETED)
+            _agent_factory.save_agent(agent, session_id, run_number)
+
+        except Exception as e:
+            logger.exception(f"Agent error: {e}")
+            yield {
+                "data": json.dumps(
+                    {
+                        "type": "error",
+                        "error": str(e),
+                    }
+                ),
+            }
+            await _db.update_session_status(session_id, SessionStatus.IDLE)
+
+        finally:
+            if session_id in _step_queues:
+                del _step_queues[session_id]
+
+        yield {"data": json.dumps({"type": "done"})}
+
+    return EventSourceResponse(event_generator())
+
+
+@app.get("/sessions/{session_id}/tokens")
 async def get_tokens(request: Request, session_id: str):
     tokens = await _session_manager.get_session_tokens(session_id)
+
+    if is_json_request(request):
+        return JSONResponse(content={"tokens": tokens})
+
     return templates.TemplateResponse(
         "token_usage.html", {"request": request, "tokens": tokens}
     )
