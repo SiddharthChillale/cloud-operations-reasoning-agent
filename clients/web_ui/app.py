@@ -19,6 +19,7 @@ from src.session.database import SessionDatabase
 from src.session.manager import SessionManager
 from src.session.models import MessageRole, SessionStatus
 from src.utils.logging import setup_logging, get_logger
+from src.utils.serializers import serialize_agent_output
 
 load_dotenv()
 
@@ -58,7 +59,9 @@ app.add_middleware(
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
+UPLOADS_DIR = STATIC_DIR / "uploads"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
 def is_htmx_request(request: Request) -> bool:
@@ -414,7 +417,10 @@ async def stream_chat(request: Request, session_id: str):
             for step in agent.memory.steps:
                 _agent_factory.save_agent(agent, session_id, run_number)
 
-            final_output = response if isinstance(response, str) else str(response)
+            serialized = serialize_agent_output(
+                response, session_id, str(request.base_url)
+            )
+            final_output = serialized.output
 
             await _db.add_message(session_id, MessageRole.AGENT, final_output)
 
@@ -422,7 +428,10 @@ async def stream_chat(request: Request, session_id: str):
                 "data": json.dumps(
                     {
                         "type": "final",
-                        "output": final_output,
+                        "output": serialized.output,
+                        "output_type": serialized.output_type,
+                        "url": serialized.url,
+                        "mime_type": serialized.mime_type,
                     }
                 ),
             }
@@ -539,7 +548,10 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
             for step in agent.memory.steps:
                 _agent_factory.save_agent(agent, session_id, run_number)
 
-            final_output = response if isinstance(response, str) else str(response)
+            serialized = serialize_agent_output(
+                response, session_id, str(request.base_url)
+            )
+            final_output = serialized.output
 
             await _db.add_message(session_id, MessageRole.AGENT, final_output)
 
@@ -547,7 +559,10 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
                 "data": json.dumps(
                     {
                         "type": "final",
-                        "output": final_output,
+                        "output": serialized.output,
+                        "output_type": serialized.output_type,
+                        "url": serialized.url,
+                        "mime_type": serialized.mime_type,
                     }
                 ),
             }

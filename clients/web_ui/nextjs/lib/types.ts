@@ -37,6 +37,9 @@ export interface SSEMessage {
   observations?: string;
   error?: string;
   output?: string;
+  output_type?: "text" | "image";
+  url?: string | null;
+  mime_type?: string | null;
   is_final_answer?: boolean;
   token_usage?: {
     input_tokens: number;

@@ -7,7 +7,7 @@ interface UseChatStreamOptions {
   sessionId: string;
   onPlanning?: (event: SSEMessage) => void;
   onAction?: (event: SSEMessage) => void;
-  onFinal?: (output: string) => void;
+  onFinal?: (event: SSEMessage) => void;
   onError?: (error: string) => void;
   onDone?: () => void;
 }
@@ -71,7 +71,7 @@ export function useChatStream({
               onAction?.(data);
               break;
             case "final":
-              onFinal?.(data.output || "");
+              onFinal?.(data);
               break;
             case "error":
               onError?.(data.error || "Unknown error");

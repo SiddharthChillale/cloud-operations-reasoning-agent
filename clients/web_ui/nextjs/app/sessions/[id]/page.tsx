@@ -26,6 +26,7 @@ import { useChatStream } from "@/lib/useChatStream";
 import { CollapsibleField } from "@/components/CollapsibleField";
 import { CodeBlock } from "@/components/CodeBlock";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { MultimediaRenderer } from "@/components/MultimediaRenderer";
 
 function parseThought(modelOutput: string): string {
   try {
@@ -47,6 +48,9 @@ export default function SessionPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
+  const [streamingOutputType, setStreamingOutputType] = useState<"text" | "image">("text");
+  const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
+  const [streamingMimeType, setStreamingMimeType] = useState<string | null>(null);
   const [steps, setSteps] = useState<SSEMessage[]>([]);
   const [isReasoningExpanded, setIsReasoningExpanded] = useState(true);
   const [isStreamingFinished, setIsStreamingFinished] = useState(false);
@@ -69,8 +73,11 @@ export default function SessionPage() {
     setSteps((prev) => [...prev, event]);
   }, []);
 
-  const handleFinal = useCallback((output: string) => {
-    setStreamingContent(output);
+  const handleFinal = useCallback((event: SSEMessage) => {
+    setStreamingContent(event.output || "");
+    setStreamingOutputType(event.output_type || "text");
+    setStreamingUrl(event.url || null);
+    setStreamingMimeType(event.mime_type || null);
     setIsReasoningExpanded(false);
   }, []);
 
@@ -91,6 +98,9 @@ export default function SessionPage() {
       ]);
     }
     setStreamingContent("");
+    setStreamingOutputType("text");
+    setStreamingUrl(null);
+    setStreamingMimeType(null);
     setIsStreamingFinished(true);
     queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
     queryClient.invalidateQueries({ queryKey: ["sessions"] });
@@ -292,7 +302,12 @@ export default function SessionPage() {
           {streamingContent && (
             <div className="flex justify-start">
               <div className="max-w-3xl px-4 py-2 rounded-lg bg-gray-100 text-gray-900">
-                <MarkdownRenderer content={streamingContent} />
+                <MultimediaRenderer
+                  output={streamingContent}
+                  output_type={streamingOutputType}
+                  url={streamingUrl}
+                  mime_type={streamingMimeType}
+                />
               </div>
             </div>
           )}
