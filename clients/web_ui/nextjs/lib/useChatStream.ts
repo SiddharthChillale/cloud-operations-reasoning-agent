@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { SSEMessage } from "./types";
+import { interruptSession } from "./api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -29,14 +30,19 @@ export function useChatStream({
   const [isStreaming, setIsStreaming] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const stopStream = useCallback(() => {
+  const stopStream = useCallback(async () => {
     if (eventSourceRef.current) {
-      console.log("[useChatStream] Closing EventSource");
+      console.log("[useChatStream] Interrupting agent and closing EventSource");
+      try {
+        await interruptSession(sessionId);
+      } catch (e) {
+        console.warn("[useChatStream] Failed to interrupt session:", e);
+      }
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
     setIsStreaming(false);
-  }, []);
+  }, [sessionId]);
 
   const startStream = useCallback(
     (query: string) => {
@@ -75,6 +81,10 @@ export function useChatStream({
               break;
             case "error":
               onError?.(data.error || "Unknown error");
+              break;
+            case "cancelled":
+              console.log("[useChatStream] Stream cancelled");
+              stopStream();
               break;
             case "done":
               console.log("[useChatStream] Stream done");

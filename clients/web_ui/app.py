@@ -2,7 +2,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Coroutine
 
 import anyio
 from dotenv import load_dotenv
@@ -33,6 +33,7 @@ _db: SessionDatabase | None = None
 _session_manager: SessionManager | None = None
 _agent_factory: SessionAgentFactory | None = None
 _step_queues: dict[str, asyncio.Queue] = {}
+_active_runs: dict[str, dict] = {}
 
 
 @asynccontextmanager
@@ -75,6 +76,36 @@ def is_json_request(request: Request) -> bool:
 def create_step_callback(session_id: str, run_number: int):
     """Create a step callback that pushes events to queue and saves to DB."""
     step_counter = {"count": 0}
+    try:
+        app_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        app_loop = None
+
+    def schedule_db_save(coro: Coroutine[Any, Any, Any]) -> None:
+        nonlocal app_loop
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop and running_loop.is_running():
+            running_loop.create_task(coro)
+            return
+
+        if app_loop and app_loop.is_running():
+            asyncio.run_coroutine_threadsafe(coro, app_loop)
+            return
+
+        try:
+            app_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("Failed to schedule DB save: no running event loop")
+            return
+
+        if app_loop.is_running():
+            app_loop.create_task(coro)
+        else:
+            logger.warning("Failed to schedule DB save: event loop is stopped")
 
     def callback(memory_step: Any, agent: Any) -> None:
         step_index = step_counter["count"]
@@ -144,7 +175,7 @@ def create_step_callback(session_id: str, run_number: int):
 
         if _session_manager:
             try:
-                asyncio.create_task(
+                schedule_db_save(
                     _session_manager.save_step_token_from_step(
                         session_id, run_number, step_index, memory_step
                     )
@@ -281,20 +312,6 @@ async def get_session(request: Request, session_id: str):
         },
     )
 
-    index_path = STATIC_DIR / "index.html"
-    if index_path.exists():
-        return HTMLResponse(index_path.read_text())
-
-    return templates.TemplateResponse(
-        "base.html",
-        {
-            "request": request,
-            "sessions": await _db.get_all_sessions(),
-            "current_session": session,
-            "tokens": tokens,
-        },
-    )
-
 
 @app.patch("/sessions/{session_id}")
 async def update_session_title(request: Request, session_id: str):
@@ -350,13 +367,22 @@ async def stream_chat(request: Request, session_id: str):
 
     step_callback = create_step_callback(session_id, run_number)
 
+    agent_task = None
+
     async def event_generator():
-        nonlocal session
+        nonlocal session, agent_task
         agent = None
         agent_task = None
         response = None
         agent_completed = False
         agent_exception = None
+        is_cancelled = False
+
+        _active_runs[session_id] = {
+            "agent": None,
+            "task": None,
+            "queue": step_queue,
+        }
 
         yield {
             "data": json.dumps(
@@ -370,10 +396,11 @@ async def stream_chat(request: Request, session_id: str):
 
         try:
             agent = await _agent_factory.get_agent(session_id, step_callback)
+            _active_runs[session_id]["agent"] = agent
 
             def run_agent():
                 try:
-                    return agent.run(query)
+                    return agent.run(query, reset=False)
                 except Exception as e:
                     return e
 
@@ -389,7 +416,7 @@ async def stream_chat(request: Request, session_id: str):
                     agent_completed = True
 
             async def read_queue():
-                nonlocal agent_completed
+                nonlocal agent_completed, is_cancelled
                 while not agent_completed or not step_queue.empty():
                     try:
                         event_data = await asyncio.wait_for(
@@ -397,7 +424,10 @@ async def stream_chat(request: Request, session_id: str):
                         )
                         event_type = event_data.get("type", "step")
 
-                        if event_type == "planning":
+                        if event_type == "cancelled":
+                            is_cancelled = True
+                            break
+                        elif event_type == "planning":
                             yield {"data": json.dumps(event_data)}
                         elif event_type == "action":
                             yield {"data": json.dumps(event_data)}
@@ -405,39 +435,47 @@ async def stream_chat(request: Request, session_id: str):
                         pass
 
             agent_task = asyncio.create_task(run_agent_async())
+            _active_runs[session_id]["task"] = agent_task
 
             async for event in read_queue():
+                if is_cancelled:
+                    break
                 yield event
 
-            await agent_task
+            if is_cancelled:
+                if agent_task and not agent_task.done():
+                    agent_task.cancel()
+                yield {"data": json.dumps({"type": "cancelled"})}
+            else:
+                await agent_task
 
-            if agent_exception:
-                raise agent_exception
+                if agent_exception:
+                    raise agent_exception
 
-            for step in agent.memory.steps:
+                for step in agent.memory.steps:
+                    _agent_factory.save_agent(agent, session_id, run_number)
+
+                serialized = serialize_agent_output(
+                    response, session_id, str(request.base_url)
+                )
+                final_output = serialized.output
+
+                await _db.add_message(session_id, MessageRole.AGENT, final_output)
+
+                yield {
+                    "data": json.dumps(
+                        {
+                            "type": "final",
+                            "output": serialized.output,
+                            "output_type": serialized.output_type,
+                            "url": serialized.url,
+                            "mime_type": serialized.mime_type,
+                        }
+                    ),
+                }
+
+                await _db.update_session_status(session_id, SessionStatus.COMPLETED)
                 _agent_factory.save_agent(agent, session_id, run_number)
-
-            serialized = serialize_agent_output(
-                response, session_id, str(request.base_url)
-            )
-            final_output = serialized.output
-
-            await _db.add_message(session_id, MessageRole.AGENT, final_output)
-
-            yield {
-                "data": json.dumps(
-                    {
-                        "type": "final",
-                        "output": serialized.output,
-                        "output_type": serialized.output_type,
-                        "url": serialized.url,
-                        "mime_type": serialized.mime_type,
-                    }
-                ),
-            }
-
-            await _db.update_session_status(session_id, SessionStatus.COMPLETED)
-            _agent_factory.save_agent(agent, session_id, run_number)
 
         except Exception as e:
             logger.exception(f"Agent error: {e}")
@@ -454,10 +492,51 @@ async def stream_chat(request: Request, session_id: str):
         finally:
             if session_id in _step_queues:
                 del _step_queues[session_id]
+            if session_id in _active_runs:
+                del _active_runs[session_id]
 
-        yield {"data": json.dumps({"type": "done"})}
+        if not is_cancelled:
+            yield {"data": json.dumps({"type": "done"})}
 
     return EventSourceResponse(event_generator())
+
+
+@app.post("/sessions/{session_id}/interrupt")
+async def interrupt_session(session_id: str):
+    """Interrupt an active agent run for a session."""
+    if session_id not in _active_runs:
+        return JSONResponse(
+            content={"error": "No active run found for this session"},
+            status_code=404,
+        )
+
+    run_info = _active_runs[session_id]
+    agent = run_info.get("agent")
+    task = run_info.get("task")
+    queue = run_info.get("queue")
+
+    if agent:
+        try:
+            agent.interrupt()
+            logger.info(f"Interrupted agent for session {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to interrupt agent: {e}")
+
+    if task and not task.done():
+        try:
+            task.cancel()
+            logger.info(f"Cancelled task for session {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to cancel task: {e}")
+
+    if queue:
+        try:
+            await queue.put({"type": "cancelled"})
+            logger.info(f"Sent cancellation signal to queue for session {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to send cancellation signal: {e}")
+
+    return JSONResponse(content={"success": True, "message": "Agent interrupted"})
 
 
 @app.get("/sessions/{session_id}/stream")
@@ -481,13 +560,22 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
 
     step_callback = create_step_callback(session_id, run_number)
 
+    agent_task = None
+
     async def event_generator():
-        nonlocal session
+        nonlocal session, agent_task
         agent = None
         agent_task = None
         response = None
         agent_completed = False
         agent_exception = None
+        is_cancelled = False
+
+        _active_runs[session_id] = {
+            "agent": None,
+            "task": None,
+            "queue": step_queue,
+        }
 
         yield {
             "data": json.dumps(
@@ -501,10 +589,11 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
 
         try:
             agent = await _agent_factory.get_agent(session_id, step_callback)
+            _active_runs[session_id]["agent"] = agent
 
             def run_agent():
                 try:
-                    return agent.run(query)
+                    return agent.run(query, reset=False)
                 except Exception as e:
                     return e
 
@@ -520,7 +609,7 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
                     agent_completed = True
 
             async def read_queue():
-                nonlocal agent_completed
+                nonlocal agent_completed, is_cancelled
                 while not agent_completed or not step_queue.empty():
                     try:
                         event_data = await asyncio.wait_for(
@@ -528,7 +617,10 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
                         )
                         event_type = event_data.get("type", "step")
 
-                        if event_type == "planning":
+                        if event_type == "cancelled":
+                            is_cancelled = True
+                            break
+                        elif event_type == "planning":
                             yield {"data": json.dumps(event_data)}
                         elif event_type == "action":
                             yield {"data": json.dumps(event_data)}
@@ -536,39 +628,47 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
                         pass
 
             agent_task = asyncio.create_task(run_agent_async())
+            _active_runs[session_id]["task"] = agent_task
 
             async for event in read_queue():
+                if is_cancelled:
+                    break
                 yield event
 
-            await agent_task
+            if is_cancelled:
+                if agent_task and not agent_task.done():
+                    agent_task.cancel()
+                yield {"data": json.dumps({"type": "cancelled"})}
+            else:
+                await agent_task
 
-            if agent_exception:
-                raise agent_exception
+                if agent_exception:
+                    raise agent_exception
 
-            for step in agent.memory.steps:
+                for step in agent.memory.steps:
+                    _agent_factory.save_agent(agent, session_id, run_number)
+
+                serialized = serialize_agent_output(
+                    response, session_id, str(request.base_url)
+                )
+                final_output = serialized.output
+
+                await _db.add_message(session_id, MessageRole.AGENT, final_output)
+
+                yield {
+                    "data": json.dumps(
+                        {
+                            "type": "final",
+                            "output": serialized.output,
+                            "output_type": serialized.output_type,
+                            "url": serialized.url,
+                            "mime_type": serialized.mime_type,
+                        }
+                    ),
+                }
+
+                await _db.update_session_status(session_id, SessionStatus.COMPLETED)
                 _agent_factory.save_agent(agent, session_id, run_number)
-
-            serialized = serialize_agent_output(
-                response, session_id, str(request.base_url)
-            )
-            final_output = serialized.output
-
-            await _db.add_message(session_id, MessageRole.AGENT, final_output)
-
-            yield {
-                "data": json.dumps(
-                    {
-                        "type": "final",
-                        "output": serialized.output,
-                        "output_type": serialized.output_type,
-                        "url": serialized.url,
-                        "mime_type": serialized.mime_type,
-                    }
-                ),
-            }
-
-            await _db.update_session_status(session_id, SessionStatus.COMPLETED)
-            _agent_factory.save_agent(agent, session_id, run_number)
 
         except Exception as e:
             logger.exception(f"Agent error: {e}")
@@ -585,8 +685,11 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
         finally:
             if session_id in _step_queues:
                 del _step_queues[session_id]
+            if session_id in _active_runs:
+                del _active_runs[session_id]
 
-        yield {"data": json.dumps({"type": "done"})}
+        if not is_cancelled:
+            yield {"data": json.dumps({"type": "done"})}
 
     return EventSourceResponse(event_generator())
 

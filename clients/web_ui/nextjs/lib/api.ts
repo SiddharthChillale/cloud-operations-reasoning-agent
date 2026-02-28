@@ -73,6 +73,13 @@ export async function getTokens(sessionId: string) {
   return result.tokens;
 }
 
+export async function interruptSession(sessionId: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(
+    `${API_BASE}/sessions/${sessionId}/interrupt`,
+    { method: "POST" }
+  );
+}
+
 export async function* streamChat(
   sessionId: string,
   query: string

@@ -26,7 +26,7 @@ export interface SessionWithMessages {
 }
 
 export interface SSEMessage {
-  type: "message" | "planning" | "action" | "final" | "error" | "done";
+  type: "message" | "planning" | "action" | "final" | "error" | "done" | "cancelled";
   role?: "user" | "agent";
   content?: string;
   step_type?: string;
