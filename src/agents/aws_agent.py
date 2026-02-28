@@ -40,15 +40,15 @@ with open(prompt_file_path) as f:
 # # prompt_templates = PromptTemplates(**rendered_yaml)
 
 
-def cora_agent(use_sandbox_execution=True, aws_regions: list[str] = ['us-east-2'] ) -> CodeAgent:
+def cora_agent(
+    use_sandbox_execution=True, aws_regions: list[str] = ["us-east-2"]
+) -> CodeAgent:
     config = get_config()
     model = create_model()
 
     tools = []
     additional_authorized_imports = ["boto3"]
-    instructions = (
-        f"""AWS Regions that are relevant: {", ".join(aws_regions)}."""
-    )
+    instructions = f"""AWS Regions that are relevant: {", ".join(aws_regions)}."""
     if config.has_aws_profile() and not use_sandbox_execution:
         instructions += """Use the create_boto_client tool for creating a boto client, as boto3 library is not available to you."""
         tools.append(create_boto_client_tool())
@@ -79,8 +79,8 @@ def cora_agent(use_sandbox_execution=True, aws_regions: list[str] = ['us-east-2'
                 ),
             },
         )
-        agent_kwargs['executor'] = executor
-        agent_kwargs['tools']= []
+        agent_kwargs["executor"] = executor
+        agent_kwargs["tools"] = []
 
     agent = CodeAgent(**agent_kwargs)
     return agent
