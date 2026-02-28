@@ -20,7 +20,8 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^2.3.0"
+    "tailwind-merge": "^2.3.0",
+    "framer-motion": "^11.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

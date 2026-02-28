@@ -6,11 +6,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send,
   Loader2,
-  ChevronDown,
-  ChevronUp,
-  Code,
-  Lightbulb,
-  Sparkles,
   Square,
 } from "lucide-react";
 import {
@@ -18,20 +13,11 @@ import {
 } from "@/lib/api";
 import { Message, SSEMessage } from "@/lib/types";
 import { useChatStream } from "@/lib/useChatStream";
-import { CollapsibleField } from "@/components/CollapsibleField";
-import { CodeBlock } from "@/components/CodeBlock";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { MultimediaRenderer } from "@/components/MultimediaRenderer";
-
-function parseThought(modelOutput: string): string {
-  try {
-    const parsed = JSON.parse(modelOutput);
-    if (parsed.thought) return parsed.thought;
-  } catch {
-    // Not JSON, return as-is
-  }
-  return modelOutput;
-}
+import { LiveThinking } from "@/components/LiveThinking";
+import { ReasoningHistory } from "@/components/ReasoningHistory";
+import { AnimatePresence, motion } from "framer-motion";
 
 export default function ChatSessionPage() {
   const params = useParams();
@@ -42,12 +28,12 @@ export default function ChatSessionPage() {
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [completedSteps, setCompletedSteps] = useState<SSEMessage[]>([]);
+  const [currentStep, setCurrentStep] = useState<SSEMessage | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingOutputType, setStreamingOutputType] = useState<"text" | "image">("text");
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
   const [streamingMimeType, setStreamingMimeType] = useState<string | null>(null);
-  const [steps, setSteps] = useState<SSEMessage[]>([]);
-  const [isReasoningExpanded, setIsReasoningExpanded] = useState(true);
   const [isStreamingFinished, setIsStreamingFinished] = useState(false);
 
   const { data: sessionData, isLoading, error } = useQuery({
@@ -56,19 +42,21 @@ export default function ChatSessionPage() {
   });
 
   const handlePlanning = useCallback((event: SSEMessage) => {
-    setSteps((prev) => [...prev, event]);
+    setCompletedSteps((prev) => [...prev, event]);
+    setCurrentStep(event);
   }, []);
 
   const handleAction = useCallback((event: SSEMessage) => {
-    setSteps((prev) => [...prev, event]);
+    setCompletedSteps((prev) => [...prev, event]);
+    setCurrentStep(event);
   }, []);
 
   const handleFinal = useCallback((event: SSEMessage) => {
+    setCurrentStep(null);
     setStreamingContent(event.output || "");
     setStreamingOutputType(event.output_type || "text");
     setStreamingUrl(event.url || null);
     setStreamingMimeType(event.mime_type || null);
-    setIsReasoningExpanded(false);
   }, []);
 
   const handleError = useCallback((error: string) => {
@@ -92,6 +80,7 @@ export default function ChatSessionPage() {
     setStreamingUrl(null);
     setStreamingMimeType(null);
     setIsStreamingFinished(true);
+    setCurrentStep(null);
     queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
     queryClient.invalidateQueries({ queryKey: ["sessions"] });
   }, [streamingContent, queryClient, sessionId]);
@@ -113,7 +102,7 @@ export default function ChatSessionPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent, steps, isReasoningExpanded]);
+  }, [messages, streamingContent, completedSteps, currentStep]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,9 +111,9 @@ export default function ChatSessionPage() {
     const query = input.trim();
     setInput("");
     setStreamingContent("");
-    setSteps([]);
+    setCompletedSteps([]);
+    setCurrentStep(null);
     setIsStreamingFinished(false);
-    setIsReasoningExpanded(true);
 
     setMessages((prev) => [
       ...prev,
@@ -165,9 +154,9 @@ export default function ChatSessionPage() {
   const currentSession = sessionData.session;
   const tokens = sessionData.tokens;
 
-  const hasSteps = steps.length > 0;
-  const planningSteps = steps.filter((s) => s.step_type === "PlanningStep");
-  const actionSteps = steps.filter((s) => s.step_type === "ActionStep");
+  const hasSteps = completedSteps.length > 0 || currentStep !== null;
+  const planningSteps = completedSteps.filter((s) => s.step_type === "PlanningStep");
+  const actionSteps = completedSteps.filter((s) => s.step_type === "ActionStep");
 
   return (
     <div className="relative flex-1 flex flex-col min-h-0">
@@ -203,34 +192,27 @@ export default function ChatSessionPage() {
           {hasSteps && (
             <div className="flex justify-start">
               <div className="max-w-3xl w-full">
-                <button
-                  onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
-                  className="flex items-center gap-2 text-sm font-medium rounded-lg px-3 py-2 w-full transition-colors hover:bg-muted"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>
-                    Reasoning 
-                    <span className="text-muted-foreground">({planningSteps.length} planning, {actionSteps.length} actions)</span>
-                  </span>
-                  {isReasoningExpanded ? (
-                    <ChevronUp className="w-4 h-4" />
+                <AnimatePresence mode="wait">
+                  {isStreamingFinished ? (
+                    <motion.div
+                      key="history"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                    >
+                      <ReasoningHistory steps={[...completedSteps, currentStep].filter((s): s is SSEMessage => s !== null)} />
+                    </motion.div>
                   ) : (
-                    <ChevronDown className="w-4 h-4" />
+                    <motion.div
+                      key="live"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                    >
+                      <LiveThinking step={currentStep} />
+                    </motion.div>
                   )}
-                </button>
-                {isReasoningExpanded && (
-                  <div className="h-64 overflow-y-auto">
-                    <div className="pl-2">
-                      {steps.map((step, index) => (
-                        <StepItem
-                          key={index}
-                          step={step}
-                          stepIndex={index}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                </AnimatePresence>
               </div>
             </div>
           )}
@@ -249,12 +231,7 @@ export default function ChatSessionPage() {
           )}
 
           {isStreaming && !streamingContent && !hasSteps && (
-            <div className="flex justify-start">
-              <div className="max-w-3xl px-4 py-2 rounded-lg text-muted-foreground flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Thinking...</span>
-              </div>
-            </div>
+            <LiveThinking step={null} />
           )}
 
           <div ref={messagesEndRef} />
@@ -304,107 +281,6 @@ export default function ChatSessionPage() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set());
-
-  const toggleField = (field: string) => {
-    setExpandedFields((prev) => {
-      const next = new Set(prev);
-      if (next.has(field)) {
-        next.delete(field);
-      } else {
-        next.add(field);
-      }
-      return next;
-    });
-  };
-
-  const isFieldExpanded = (field: string) => expandedFields.has(field);
-
-  const isPlanning = step.step_type === "PlanningStep";
-  const thought = step.model_output ? parseThought(step.model_output) : "";
-
-  return (
-    <div className="p-2 w-full">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 text-sm font-medium w-full"
-      >
-        <span className="truncate text-foreground">
-          {isPlanning ? "Planning" : "Action"}
-        </span>
-        {step.error && (
-          <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded">
-            Error
-          </span>
-        )}
-        {isExpanded ? (
-          <ChevronUp className="w-4 h-4 flex-shrink-0" />
-        ) : (
-          <ChevronDown className="w-4 h-4 flex-shrink-0" />
-        )}
-      </button>
-
-      {isExpanded && (
-        <div className="text-sm space-y-2">
-          {isPlanning && step.plan && (
-            <div className="mt-2 rounded p-2 text-xs overflow-x-auto">
-              <MarkdownRenderer content={step.plan} stripMarkdown />
-            </div>
-          )}
-
-          {!isPlanning && thought && (
-            <div className="rounded p-2 text-xs overflow-x-auto text-foreground">
-              <MarkdownRenderer content={thought} stripMarkdown />
-            </div>
-          )}
-
-          {step.code_action && (
-            <div>
-              <button
-                onClick={() => toggleField("code_action")}
-                className="flex items-center gap-1 font-medium text-xs uppercase tracking-wide text-green-600"
-              >
-                Code
-                {isFieldExpanded("code_action") ? (
-                  <ChevronUp className="w-4 h-4 flex-shrink-0" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 flex-shrink-0" />
-                )}
-              </button>
-              {isFieldExpanded("code_action") && (
-                <div className="mt-2">
-                  <CodeBlock code={step.code_action} language="python" />
-                </div>
-              )}
-            </div>
-          )}
-
-          {step.observations && (
-            <CollapsibleField
-              label="Output"
-              content={step.observations}
-              isExpanded={isFieldExpanded("observations")}
-              onToggle={() => toggleField("observations")}
-            />
-          )}
-
-          {step.error && (
-            <CollapsibleField
-              label="Error"
-              content={step.error}
-              isExpanded={isFieldExpanded("error")}
-              onToggle={() => toggleField("error")}
-              isError
-            />
-          )}
-        </div>
-      )}
     </div>
   );
 }
