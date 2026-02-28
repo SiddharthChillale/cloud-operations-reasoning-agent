@@ -1,13 +1,14 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Coroutine
 
 import anyio
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 from smolagents.memory import ActionStep, PlanningStep, FinalAnswerStep
 
@@ -44,6 +45,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CORA Web API", lifespan=lifespan)
+
+UPLOADS_DIR = Path("uploads")
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
 @app.middleware("http")

@@ -20,4 +20,5 @@ client/node_modules/
 
 *node_modules/
 
-clients/web_ui/nextjs/.next/
+client/.next/
+uploads/

@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from smolagents.agent_types import AgentImage, AgentText
 
-UPLOADS_DIR = Path("clients/web_ui/static/uploads")
+UPLOADS_DIR = Path("uploads")
 
 
 @dataclass
