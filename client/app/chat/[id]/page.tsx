@@ -11,13 +11,15 @@ import {
 import {
   getSession,
 } from "@/lib/api";
-import { Message, SSEMessage } from "@/lib/types";
+import { Message, Session, SSEMessage } from "@/lib/types";
 import { useChatStream } from "@/lib/useChatStream";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { MultimediaRenderer } from "@/components/MultimediaRenderer";
 import { LiveThinking } from "@/components/LiveThinking";
 import { ReasoningHistory } from "@/components/ReasoningHistory";
 import { AnimatePresence, motion } from "framer-motion";
+import { useSessionTitle } from "@/lib/SessionContext";
+import { animationConfig } from "@/lib/config";
 
 export default function ChatSessionPage() {
   const params = useParams();
@@ -35,6 +37,19 @@ export default function ChatSessionPage() {
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
   const [streamingMimeType, setStreamingMimeType] = useState<string | null>(null);
   const [isStreamingFinished, setIsStreamingFinished] = useState(false);
+
+  const { setSessionTitle } = useSessionTitle();
+
+  const handleMessage = useCallback((event: SSEMessage) => {
+    if (event.role === "user" && event.content) {
+      const title = event.content.slice(0, 27) + (event.content.length > 30 ? "..." : "");
+      setSessionTitle(title);
+      // Update React Query cache for sessions list
+      queryClient.setQueryData(["sessions"], (old: Session[] | undefined) => 
+        old?.map(s => s.id === sessionId ? { ...s, title } : s)
+      );
+    }
+  }, [queryClient, sessionId, setSessionTitle]);
 
   const { data: sessionData, isLoading, error } = useQuery({
     queryKey: ["session", sessionId],
@@ -87,12 +102,19 @@ export default function ChatSessionPage() {
 
   const { isStreaming, startStream, stopStream } = useChatStream({
     sessionId,
+    onMessage: handleMessage,
     onPlanning: handlePlanning,
     onAction: handleAction,
     onFinal: handleFinal,
     onError: handleError,
     onDone: handleDone,
   });
+
+  useEffect(() => {
+    if (sessionData?.session) {
+      setSessionTitle(sessionData.session.title);
+    }
+  }, [sessionData, setSessionTitle]);
 
   useEffect(() => {
     if (sessionData?.messages) {
@@ -164,7 +186,7 @@ export default function ChatSessionPage() {
         ref={chatContainerRef}
         className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/10 scrollbar-track-transparent"
       >
-        <div className="p-6 pb-40 space-y-6 max-w-4xl mx-auto">
+        <div className="p-6 pb-40 space-y-6 max-w-3xl mx-auto">
 
           {messages.map((message) => (
             <div
@@ -176,8 +198,8 @@ export default function ChatSessionPage() {
               <div
                 className={`max-w-3xl px-6 py-4 rounded-3xl ${
                   message.role === "user"
-                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
-                    : "bg-card border border-border/60 text-foreground shadow-sm"
+                    ? "bg-card"
+                    : "text-foreground"
                 }`}
               >
                 {message.role === "user" ? (
@@ -221,7 +243,7 @@ export default function ChatSessionPage() {
 
           {streamingContent && (
             <div className="flex justify-start px-6">
-              <div className="max-w-3xl w-full p-6 bg-card border border-border/60 rounded-3xl text-foreground shadow-sm">
+              <div className="max-w-3xl w-full p-6 text-foreground shadow-sm">
                 <MultimediaRenderer
                   output={streamingContent}
                   output_type={streamingOutputType}

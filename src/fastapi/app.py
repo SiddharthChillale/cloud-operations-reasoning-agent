@@ -275,162 +275,6 @@ async def delete_session(session_id: str):
     return JSONResponse(content={"success": True, "redirect_url": "/"})
 
 
-@app.post("/sessions/{session_id}/stream")
-async def stream_chat(request: Request, session_id: str):
-    form_data = await request.form()
-    query = form_data.get("query", "")
-
-    if not query:
-        return JSONResponse(content={"error": "Query is required"}, status_code=400)
-
-    session = await _db.get_session(session_id)
-    if not session:
-        return JSONResponse(content={"error": "Session not found"}, status_code=404)
-
-    await _db.add_message(session_id, MessageRole.USER, query)
-    await _db.update_session_status(session_id, SessionStatus.RUNNING)
-
-    run_number = await _session_manager.get_next_run_number(session_id)
-
-    step_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-    _step_queues[session_id] = step_queue
-
-    step_callback = create_step_callback(session_id, run_number)
-
-    agent_task = None
-
-    async def event_generator():
-        nonlocal session, agent_task
-        agent = None
-        agent_task = None
-        response = None
-        agent_completed = False
-        agent_exception = None
-        is_cancelled = False
-
-        _active_runs[session_id] = {
-            "agent": None,
-            "task": None,
-            "queue": step_queue,
-        }
-
-        yield {
-            "data": json.dumps(
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": query,
-                }
-            ),
-        }
-
-        try:
-            agent = await _agent_factory.get_agent(session_id, step_callback)
-            _active_runs[session_id]["agent"] = agent
-
-            def run_agent():
-                try:
-                    return agent.run(query, reset=False)
-                except Exception as e:
-                    return e
-
-            async def run_agent_async():
-                nonlocal response, agent_completed, agent_exception
-                try:
-                    response = await anyio.to_thread.run_sync(run_agent)
-                    if isinstance(response, Exception):
-                        agent_exception = response
-                    agent_completed = True
-                except Exception as e:
-                    agent_exception = e
-                    agent_completed = True
-
-            async def read_queue():
-                nonlocal agent_completed, is_cancelled
-                while not agent_completed or not step_queue.empty():
-                    try:
-                        event_data = await asyncio.wait_for(
-                            step_queue.get(), timeout=0.5
-                        )
-                        event_type = event_data.get("type", "step")
-
-                        if event_type == "cancelled":
-                            is_cancelled = True
-                            break
-                        elif event_type == "planning":
-                            yield {"data": json.dumps(event_data)}
-                        elif event_type == "action":
-                            yield {"data": json.dumps(event_data)}
-                    except asyncio.TimeoutError:
-                        pass
-
-            agent_task = asyncio.create_task(run_agent_async())
-            _active_runs[session_id]["task"] = agent_task
-
-            async for event in read_queue():
-                if is_cancelled:
-                    break
-                yield event
-
-            if is_cancelled:
-                if agent_task and not agent_task.done():
-                    agent_task.cancel()
-                yield {"data": json.dumps({"type": "cancelled"})}
-            else:
-                await agent_task
-
-                if agent_exception:
-                    raise agent_exception
-
-                for step in agent.memory.steps:
-                    _agent_factory.save_agent(agent, session_id, run_number)
-
-                serialized = serialize_agent_output(
-                    response, session_id, str(request.base_url)
-                )
-                final_output = serialized.output
-
-                await _db.add_message(session_id, MessageRole.AGENT, final_output)
-
-                yield {
-                    "data": json.dumps(
-                        {
-                            "type": "final",
-                            "output": serialized.output,
-                            "output_type": serialized.output_type,
-                            "url": serialized.url,
-                            "mime_type": serialized.mime_type,
-                        }
-                    ),
-                }
-
-                await _db.update_session_status(session_id, SessionStatus.COMPLETED)
-                _agent_factory.save_agent(agent, session_id, run_number)
-
-        except Exception as e:
-            logger.exception(f"Agent error: {e}")
-            yield {
-                "data": json.dumps(
-                    {
-                        "type": "error",
-                        "error": str(e),
-                    }
-                ),
-            }
-            await _db.update_session_status(session_id, SessionStatus.IDLE)
-
-        finally:
-            if session_id in _step_queues:
-                del _step_queues[session_id]
-            if session_id in _active_runs:
-                del _active_runs[session_id]
-
-        if not is_cancelled:
-            yield {"data": json.dumps({"type": "done"})}
-
-    return EventSourceResponse(event_generator())
-
-
 @app.post("/sessions/{session_id}/interrupt")
 async def interrupt_session(session_id: str):
     if session_id not in _active_runs:
@@ -469,7 +313,7 @@ async def interrupt_session(session_id: str):
 
 
 @app.get("/sessions/{session_id}/stream")
-async def stream_chat_get(request: Request, session_id: str, query: str = ""):
+async def stream_chat(request: Request, session_id: str, query: str = ""):
     if not query:
         return JSONResponse(
             content={"error": "Query parameter is required"}, status_code=400
@@ -478,6 +322,13 @@ async def stream_chat_get(request: Request, session_id: str, query: str = ""):
     session = await _db.get_session(session_id)
     if not session:
         return JSONResponse(content={"error": "Session not found"}, status_code=404)
+
+    # Check if this is the first user message
+    existing_user_messages = [m for m in session.messages if m.role == MessageRole.USER]
+    if not existing_user_messages:
+        # First user message - set title (27 chars + "..." = 30 chars)
+        title = query[:27] + "..." if len(query) > 30 else query
+        await _db.update_session_title(session_id, title)
 
     await _db.add_message(session_id, MessageRole.USER, query)
     await _db.update_session_status(session_id, SessionStatus.RUNNING)

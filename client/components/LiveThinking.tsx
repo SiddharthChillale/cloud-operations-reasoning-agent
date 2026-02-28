@@ -6,6 +6,7 @@ import { Brain, Code, Loader2 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { SSEMessage } from "@/lib/types";
+import { animationConfig } from "@/lib/config";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -52,8 +53,8 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
 
     let currentIndex = 0;
     const chars = content.split("");
-    const minDuration = 15;
-    const maxDuration = 40;
+    const minDuration = animationConfig.minCharDuration;
+    const maxDuration = animationConfig.maxCharDuration;
 
     const typeNextChar = () => {
       if (currentIndex < chars.length) {

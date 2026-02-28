@@ -15,6 +15,18 @@ import {
   Moon,
 } from "lucide-react";
 import { getSessions, createSession, deleteSession } from "@/lib/api";
+import { Session } from "@/lib/types";
+import { SessionProvider, useSessionTitle } from "@/lib/SessionContext";
+
+function SessionTitleDisplay() {
+  const { sessionTitle } = useSessionTitle();
+  if (!sessionTitle) return null;
+  return (
+    <span className="text-sm font-medium text-muted-foreground truncate max-w-md">
+      {sessionTitle}
+    </span>
+  );
+}
 
 export default function ChatLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -36,8 +48,17 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   const createSessionMutation = useMutation({
     mutationFn: createSession,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      window.location.href = `/chat/${data.session_id}`;
+      queryClient.setQueryData(["sessions"], (old: Session[] | undefined) => {
+        const newSession: Session = {
+          id: data.session_id,
+          title: "New Chat",
+          status: "idle",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        return old ? [newSession, ...old] : [newSession];
+      });
+      router.push(`/chat/${data.session_id}`);
     },
   });
 
@@ -169,41 +190,47 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        {/* Chat Area Header */}
-        <header className="h-16 border-b flex items-center justify-between px-6 bg-background/80 backdrop-blur-md sticky top-0 z-30">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-2 group">
-              <div className="relative w-8 h-8 transition-transform group-hover:scale-105">
-                <Image
-                  src={mounted && theme === "dark" ? "/cora-icon-dark.svg" : "/cora-icon-large.svg"}
-                  alt="CORA"
-                  width={32}
-                  height={32}
-                  className="object-contain"
-                />
-              </div>
-              <span className="text-xl font-bold tracking-tighter text-foreground">CORA</span>
-            </Link>
-          </div>
+        <SessionProvider>
+          {/* Chat Area Header */}
+          <header className="h-16 border-b flex items-center justify-between px-6 bg-background/80 backdrop-blur-md sticky top-0 z-30">
+            <div className="flex items-center gap-3">
+              <Link href="/" className="flex items-center gap-2 group">
+                <div className="relative w-8 h-8 transition-transform group-hover:scale-105">
+                  <Image
+                    src={mounted && theme === "dark" ? "/cora-icon-dark.svg" : "/cora-icon-large.svg"}
+                    alt="CORA"
+                    width={32}
+                    height={32}
+                    className="object-contain"
+                  />
+                </div>
+                <span className="text-xl font-bold tracking-tighter text-foreground">CORA</span>
+              </Link>
+            </div>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="p-2.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-all active:scale-95 border border-transparent hover:border-border"
-              title={mounted && theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {mounted && theme === "dark" ? (
-                <Sun className="w-5 h-5 text-cora-green" />
-              ) : (
-                <Moon className="w-5 h-5 text-cora-emerald" />
-              )}
-            </button>
-          </div>
-        </header>
+            <div className="flex-1 flex justify-center overflow-hidden px-4">
+              <SessionTitleDisplay />
+            </div>
 
-        <div className="flex-1 overflow-hidden relative">
-          {children}
-        </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                className="p-2.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-all active:scale-95 border border-transparent hover:border-border"
+                title={mounted && theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {mounted && theme === "dark" ? (
+                  <Sun className="w-5 h-5 text-cora-green" />
+                ) : (
+                  <Moon className="w-5 h-5 text-cora-emerald" />
+                )}
+              </button>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-hidden relative">
+            {children}
+          </div>
+        </SessionProvider>
       </main>
     </div>
   );

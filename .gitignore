@@ -23,3 +23,5 @@ client/node_modules/
 client/.next/
 uploads/
 *.DS_Store
+
+CORA-Cloud-Operations-Reasoning-Agent/
