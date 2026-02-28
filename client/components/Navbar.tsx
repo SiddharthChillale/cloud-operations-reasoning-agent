@@ -6,31 +6,47 @@ import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
 import { Sun, Moon, MessageSquare } from "lucide-react";
 import Image from "next/image";
+import { motion, useScroll, useTransform } from "framer-motion";
 
 export function Navbar() {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const isChatPage = pathname.startsWith("/chat");
+  
+  const { scrollY } = useScroll();
+  const logoOpacity = useTransform(scrollY, [100, 200], [0, 1]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const isChatPage = pathname.startsWith("/chat");
+  const isHomePage = pathname === "/";
+
+  if (isChatPage) return null;
+
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-md transition-all duration-200">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="relative w-8 h-8">
+        <Link href="/" className="flex items-center gap-2 group">
+          <motion.div 
+            className="relative w-8 h-8"
+            style={isHomePage ? { opacity: logoOpacity } : { opacity: 1 }}
+          >
             <Image
-              src={mounted && theme === "dark" ? "/cora-icon-dark.svg" : "/icon.svg"}
+              src={mounted && theme === "dark" ? "/cora-icon-dark.svg" : "/cora-icon-large.svg"}
               alt="CORA"
               width={32}
               height={32}
               className="object-contain"
             />
-          </div>
-          <span className="text-xl font-bold text-foreground">CORA</span>
+          </motion.div>
+          <motion.span 
+            className="text-xl font-bold text-foreground"
+            style={isHomePage ? { opacity: logoOpacity } : { opacity: 1 }}
+          >
+            CORA
+          </motion.span>
         </Link>
 
         <div className="flex items-center gap-4">

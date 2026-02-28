@@ -159,38 +159,40 @@ export default function ChatSessionPage() {
   const actionSteps = completedSteps.filter((s) => s.step_type === "ActionStep");
 
   return (
-    <div className="relative flex-1 flex flex-col min-h-0">
+    <div className="relative flex-1 flex flex-col h-full overflow-hidden">
       <div
         ref={chatContainerRef}
-        className="overflow-y-auto"
+        className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/10 scrollbar-track-transparent"
       >
-        <div className=" p-3 pb-32 space-y-4 flex-1 w-[60vw] mx-auto">
+        <div className="p-6 pb-40 space-y-6 max-w-4xl mx-auto">
 
           {messages.map((message) => (
             <div
               key={message.id}
               className={`flex ${
                 message.role === "user" ? "justify-end" : "justify-start"
-              }`}
+              } animate-fade-in`}
             >
               <div
-                className={`max-w-3xl px-4 py-2 rounded-lg ${
+                className={`max-w-3xl px-6 py-4 rounded-3xl ${
                   message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-foreground"
+                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                    : "bg-card border border-border/60 text-foreground shadow-sm"
                 }`}
               >
                 {message.role === "user" ? (
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
                 ) : (
-                  <MarkdownRenderer content={message.content} />
+                  <div className="text-sm leading-relaxed">
+                    <MarkdownRenderer content={message.content} />
+                  </div>
                 )}
               </div>
             </div>
           ))}
 
           {hasSteps && (
-            <div className="flex justify-start">
+            <div className="flex justify-start px-6">
               <div className="max-w-3xl w-full">
                 <AnimatePresence mode="wait">
                   {isStreamingFinished ? (
@@ -218,8 +220,8 @@ export default function ChatSessionPage() {
           )}
 
           {streamingContent && (
-            <div className="flex justify-start">
-              <div className="max-w-3xl px-4 py-2 rounded-lg text-foreground">
+            <div className="flex justify-start px-6">
+              <div className="max-w-3xl w-full p-6 bg-card border border-border/60 rounded-3xl text-foreground shadow-sm">
                 <MultimediaRenderer
                   output={streamingContent}
                   output_type={streamingOutputType}
@@ -240,12 +242,12 @@ export default function ChatSessionPage() {
 
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none">
         <div className="max-w-3xl mx-auto pointer-events-auto">
-          <form onSubmit={handleSubmit} className="flex gap-2 bg-background p-2 shadow-lg">
+          <form onSubmit={handleSubmit} className="flex gap-2 bg-background p-2 shadow-2xl border border-border rounded-2xl overflow-hidden backdrop-blur-sm">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask something..."
+              placeholder="Query cloud infrastructure..."
               disabled={isStreaming}
               className="flex-1 px-4 py-2 focus:outline-none disabled:bg-muted bg-transparent text-foreground"
             />

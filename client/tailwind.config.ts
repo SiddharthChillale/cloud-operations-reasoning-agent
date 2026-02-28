@@ -27,6 +27,22 @@ const config: Config = {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        "cora-green": "#1bcc6d",
+        "cora-emerald": "#007f3b",
+        "cora-parchment": "#E5D9B6",
+      },
+      fontFamily: {
+        sans: ["var(--font-jakarta)", "sans-serif"],
+        mono: ["var(--font-jetbrains-mono)", "monospace"],
+      },
+      animation: {
+        "fade-in": "fadeIn 200ms ease-out forwards",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
       },
     },
   },
