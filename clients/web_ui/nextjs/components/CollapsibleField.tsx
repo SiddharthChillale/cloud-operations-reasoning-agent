@@ -26,7 +26,7 @@ export function CollapsibleField({
   stripMarkdownField = false,
 }: CollapsibleFieldProps) {
   return (
-    <div className={isError ? "text-red-600 bg-red-50 p-2 rounded" : ""}>
+    <div className={isError ? "text-red-600" : ""}>
       <button
         onClick={onToggle}
         className="flex items-center gap-1 font-medium text-xs uppercase tracking-wide"

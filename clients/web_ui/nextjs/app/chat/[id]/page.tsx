@@ -173,94 +173,97 @@ export default function ChatSessionPage() {
     <div className="relative flex-1 flex flex-col min-h-0">
       <div
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-3 pb-32 space-y-4"
+        className="overflow-y-auto"
       >
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
+        <div className=" p-3 pb-32 space-y-4 flex-1 w-[60vw] mx-auto">
+
+          {messages.map((message) => (
             <div
-              className={`max-w-3xl px-4 py-2 rounded-lg ${
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground"
+              key={message.id}
+              className={`flex ${
+                message.role === "user" ? "justify-end" : "justify-start"
               }`}
             >
-              {message.role === "user" ? (
-                <p className="whitespace-pre-wrap">{message.content}</p>
-              ) : (
-                <MarkdownRenderer content={message.content} />
-              )}
-            </div>
-          </div>
-        ))}
-
-        {hasSteps && (
-          <div className="flex justify-start">
-            <div className="max-w-3xl w-full">
-              <button
-                onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
-                className="flex items-center gap-2 text-sm font-medium rounded-lg px-3 py-2 w-full transition-colors hover:bg-muted"
+              <div
+                className={`max-w-3xl px-4 py-2 rounded-lg ${
+                  message.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground"
+                }`}
               >
-                <Sparkles className="w-4 h-4" />
-                <span>
-                  Reasoning 
-                  <span className="text-muted-foreground">({planningSteps.length} planning, {actionSteps.length} actions)</span>
-                </span>
-                {isReasoningExpanded ? (
-                  <ChevronUp className="w-4 h-4" />
+                {message.role === "user" ? (
+                  <p className="whitespace-pre-wrap">{message.content}</p>
                 ) : (
-                  <ChevronDown className="w-4 h-4" />
+                  <MarkdownRenderer content={message.content} />
                 )}
-              </button>
-              {isReasoningExpanded && (
-                <div className="h-64 overflow-y-auto">
-                  <div className="pl-2">
-                    {steps.map((step, index) => (
-                      <StepItem
-                        key={index}
-                        step={step}
-                        stepIndex={index}
-                      />
-                    ))}
+              </div>
+            </div>
+          ))}
+
+          {hasSteps && (
+            <div className="flex justify-start">
+              <div className="max-w-3xl w-full">
+                <button
+                  onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
+                  className="flex items-center gap-2 text-sm font-medium rounded-lg px-3 py-2 w-full transition-colors hover:bg-muted"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>
+                    Reasoning 
+                    <span className="text-muted-foreground">({planningSteps.length} planning, {actionSteps.length} actions)</span>
+                  </span>
+                  {isReasoningExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+                {isReasoningExpanded && (
+                  <div className="h-64 overflow-y-auto">
+                    <div className="pl-2">
+                      {steps.map((step, index) => (
+                        <StepItem
+                          key={index}
+                          step={step}
+                          stepIndex={index}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {streamingContent && (
-          <div className="flex justify-start">
-            <div className="max-w-3xl px-4 py-2 rounded-lg bg-muted text-foreground">
-              <MultimediaRenderer
-                output={streamingContent}
-                output_type={streamingOutputType}
-                url={streamingUrl}
-                mime_type={streamingMimeType}
-              />
+          {streamingContent && (
+            <div className="flex justify-start">
+              <div className="max-w-3xl px-4 py-2 rounded-lg text-foreground">
+                <MultimediaRenderer
+                  output={streamingContent}
+                  output_type={streamingOutputType}
+                  url={streamingUrl}
+                  mime_type={streamingMimeType}
+                />
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {isStreaming && !streamingContent && !hasSteps && (
-          <div className="flex justify-start">
-            <div className="max-w-3xl px-4 py-2 rounded-lg bg-muted text-muted-foreground flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Thinking...</span>
+          {isStreaming && !streamingContent && !hasSteps && (
+            <div className="flex justify-start">
+              <div className="max-w-3xl px-4 py-2 rounded-lg text-muted-foreground flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Thinking...</span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none">
         <div className="max-w-3xl mx-auto pointer-events-auto">
-          <form onSubmit={handleSubmit} className="flex gap-2 bg-background border rounded-lg p-2 shadow-lg">
+          <form onSubmit={handleSubmit} className="flex gap-2 bg-background p-2 shadow-lg">
             <input
               type="text"
               value={input}
@@ -270,20 +273,26 @@ export default function ChatSessionPage() {
               className="flex-1 px-4 py-2 focus:outline-none disabled:bg-muted bg-transparent text-foreground"
             />
             <button
-              type="submit"
-              disabled={!input.trim() || isStreaming}
+              type={isStreaming ? "button" : "submit"}
+              disabled={!input.trim() && !isStreaming}
               onClick={(e) => {
                 if (isStreaming) {
                   e.preventDefault();
                   stopStream();
                 }
               }}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className={`p-2 rounded-lg transition-all ${
+                isStreaming
+                  ? "ring-2 ring-red-500 animate-pulse"
+                  : "hover:bg-muted"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {isStreaming ? (
-                <Square className="w-5 h-5" />
+                <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center">
+                  <Square className="w-3.5 h-3.5 text-red-600" />
+                </div>
               ) : (
-                <Send className="w-5 h-5" />
+                <Send className="w-5 h-5 text-primary" />
               )}
             </button>
           </form>
@@ -326,13 +335,8 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex items-center gap-2 text-sm font-medium w-full"
       >
-        {isPlanning ? (
-          <Lightbulb className="w-4 h-4 flex-shrink-0 text-blue-500" />
-        ) : (
-          <Code className="w-4 h-4 flex-shrink-0 text-green-500" />
-        )}
         <span className="truncate text-foreground">
-          Step {step.step_number}: {isPlanning ? "Planning" : "Action"}
+          {isPlanning ? "Planning" : "Action"}
         </span>
         {step.error && (
           <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded">
@@ -347,7 +351,7 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
       </button>
 
       {isExpanded && (
-        <div className="text-sm space-y-2 pl-2">
+        <div className="text-sm space-y-2">
           {isPlanning && step.plan && (
             <div className="mt-2 rounded p-2 text-xs overflow-x-auto">
               <MarkdownRenderer content={step.plan} stripMarkdown />

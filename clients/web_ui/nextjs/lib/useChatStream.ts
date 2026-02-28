@@ -17,6 +17,7 @@ interface UseChatStreamReturn {
   isStreaming: boolean;
   startStream: (query: string) => void;
   stopStream: () => void;
+  closeStream: () => void;
 }
 
 export function useChatStream({
@@ -43,6 +44,16 @@ export function useChatStream({
     }
     setIsStreaming(false);
   }, [sessionId]);
+
+  // Wrapper for external use (e.g., stop button) that doesn't call interrupt
+  const closeStream = useCallback(() => {
+    if (eventSourceRef.current) {
+      console.log("[useChatStream] Closing EventSource");
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setIsStreaming(false);
+  }, []);
 
   const startStream = useCallback(
     (query: string) => {
@@ -84,12 +95,12 @@ export function useChatStream({
               break;
             case "cancelled":
               console.log("[useChatStream] Stream cancelled");
-              stopStream();
+              closeStream();
               break;
             case "done":
               console.log("[useChatStream] Stream done");
               onDone?.();
-              stopStream();
+              closeStream();
               break;
           }
         } catch (e) {
@@ -99,10 +110,15 @@ export function useChatStream({
 
       eventSource.onerror = (error) => {
         console.error("[useChatStream] EventSource error:", error);
-        stopStream();
+        // Just close the EventSource without interrupting - don't call interruptSession on errors
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+          eventSourceRef.current = null;
+        }
+        setIsStreaming(false);
       };
     },
-    [sessionId, stopStream, onPlanning, onAction, onFinal, onError, onDone]
+    [sessionId, stopStream, closeStream, onPlanning, onAction, onFinal, onError, onDone]
   );
 
   useEffect(() => {
@@ -115,5 +131,6 @@ export function useChatStream({
     isStreaming,
     startStream,
     stopStream,
+    closeStream,
   };
 }
