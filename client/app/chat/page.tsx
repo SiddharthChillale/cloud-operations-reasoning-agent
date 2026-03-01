@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -13,7 +13,7 @@ import { ChatSessionView } from "@/components/ChatSessionView";
 import { cn } from "@/lib/utils";
 import { useSessionTitle } from "@/lib/SessionContext";
 
-export default function ChatPage() {
+function ChatPageContent() {
   const { theme } = useTheme();
   const searchParams = useSearchParams();
   const resetToken = searchParams.get("new");
@@ -132,5 +132,21 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ChatPageLoading() {
+  return (
+    <div className="flex h-full flex-1 items-center justify-center">
+      <div className="text-muted-foreground">Loading...</div>
+    </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<ChatPageLoading />}>
+      <ChatPageContent />
+    </Suspense>
   );
 }
