@@ -39,6 +39,11 @@ export function ChatSessionView({
   const autoStartLockRef = useRef(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+  const [pendingMessage, setPendingMessage] = useState<{ content: string; id: number } | null>(null);
+  const pendingMessageRef = useRef<{ content: string; id: number } | null>(null);
+  pendingMessageRef.current = pendingMessage;
   const [completedSteps, setCompletedSteps] = useState<SSEMessage[]>([]);
   const [currentStep, setCurrentStep] = useState<SSEMessage | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
@@ -59,6 +64,17 @@ export function ChatSessionView({
         queryClient.setQueryData(["sessions"], (old: Session[] | undefined) =>
           old?.map((s) => (s.id === sessionId ? { ...s, title } : s)),
         );
+
+        setPendingMessage(null);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateMessageId(),
+            role: "user",
+            content: event.content,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
       }
     },
     [queryClient, sessionId, setSessionTitle],
@@ -143,15 +159,8 @@ export function ChatSessionView({
       setCurrentStep(null);
       setIsStreamingFinished(false);
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateMessageId(),
-          role: "user",
-          content: trimmed,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+      const pendingId = generateMessageId();
+      setPendingMessage({ content: trimmed, id: pendingId });
 
       setTimeout(() => {
         chatContainerRef.current?.scrollTo({
@@ -170,9 +179,9 @@ export function ChatSessionView({
     if (pendingAutoStartRef.current.id !== sessionId) return;
     if (autoStartLockRef.current) return;
 
+    autoStartLockRef.current = true;
     const nextQuery = pendingAutoStartRef.current.query;
     pendingAutoStartRef.current = null;
-    autoStartLockRef.current = true;
     appendUserMessageAndStream(nextQuery);
     onInitialQueryConsumed?.();
   }, [appendUserMessageAndStream, onInitialQueryConsumed, sessionId]);
@@ -201,6 +210,7 @@ export function ChatSessionView({
     setStreamingUrl(null);
     setStreamingMimeType(null);
     setIsStreamingFinished(false);
+    setPendingMessage(null);
     autoStartLockRef.current = false;
   }, [sessionId]);
 
@@ -262,6 +272,26 @@ export function ChatSessionView({
               </div>
             </div>
           ))}
+
+          {pendingMessage && (
+            <motion.div
+              key={pendingMessage.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="flex justify-end"
+            >
+              <div className="max-w-3xl rounded-3xl px-6 py-4 bg-card">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{pendingMessage.content}</p>
+                <motion.div
+                  className="mt-2 h-1 rounded-full bg-primary/30"
+                  initial={{ width: 0 }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                />
+              </div>
+            </motion.div>
+          )}
 
           {hasSteps && (
             <div className="flex justify-start px-6">

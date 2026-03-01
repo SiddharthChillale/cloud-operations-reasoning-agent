@@ -64,7 +64,7 @@ export function MarkdownRenderer({
             const isInline = !codeClassName?.includes("language-");
             if (isInline) {
               return (
-                <code className="bg-gray-100 rounded px-1 py-0.5 text-sm font-mono" {...props}>
+                <code className="rounded px-1 py-0.5 text-sm font-mono" {...props}>
                   {children}
                 </code>
               );

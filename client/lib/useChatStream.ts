@@ -96,10 +96,10 @@ export function useChatStream({
       };
 
       eventSource.onmessage = (event) => {
-        console.log("[useChatStream] Raw message:", event.data);
+        // console.log("[useChatStream] Raw message:", event.data);
         try {
           const data = JSON.parse(event.data) as SSEMessage;
-          console.log("[useChatStream] Parsed event:", data.type, data.step_number, data.step_type);
+          // console.log("[useChatStream] Parsed event:", data.type, data.step_number, data.step_type);
 
           switch (data.type) {
             case "message":
