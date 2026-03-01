@@ -17,11 +17,6 @@ class SessionDatabase:
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(self.db_path) as db:
-            # Drop tables for greenfield (remove in production with existing data)
-            await db.execute("DROP TABLE IF EXISTS agent_run_metrics")
-            await db.execute("DROP TABLE IF EXISTS messages")
-            await db.execute("DROP TABLE IF EXISTS sessions")
-
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (

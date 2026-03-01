@@ -30,7 +30,7 @@
 #     tools = [create_boto_client_tool()]
 #     additional_authorized_imports = ["botocore.exceptions", "json"]
 #     if not config.has_aws_profile():
-#         additional_authorized_imports.extend(["boto3", "botocore"])  
+#         additional_authorized_imports.extend(["boto3", "botocore"])
 #         tools.pop(0)
 
 #     agent = CodeAgent(
