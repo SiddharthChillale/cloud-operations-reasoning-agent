@@ -71,7 +71,7 @@ export function ChatSessionView({
           {
             id: generateMessageId(),
             role: "user",
-            content: event.content,
+            content: event.content || "",
             timestamp: new Date().toISOString(),
           },
         ]);
