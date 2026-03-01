@@ -30,8 +30,14 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 COPY . .
 
+# Copy Modal credentials (requires: cp ~/.modal.toml ./modal.toml before building)
+COPY modal.toml /root/.modal.toml
+
+# Copy config file (requires: cp ~/.config/cora/config.yaml ./.config/cora.yaml before building)
+COPY .config/cora.yaml /root/.config/cora/config.yaml
+
 EXPOSE 8000
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "clients.web_ui.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.fastapi.app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CORA POC - Parent Stack (creates nested stacks)
+Parameters:
+  AccountId:
+    Type: String
+    Description: AWS Account ID (12 digits)
+    AllowedPattern: ^\d{12}$
+    ConstraintDescription: Must be 12 digits
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: EC2 Key Pair name for SSH access (optional)
+  DockerImageApi:
+    Type: String
+    Description: Docker image for FastAPI server (e.g., youruser/cora:latest)
+  DockerImageClient:
+    Type: String
+    Description: Docker image for Next.js client (e.g., youruser/cora-client:latest)
+  CloudflareToken:
+    Type: String
+    NoEcho: true
+    Description: Cloudflare Tunnel token
+  DockerHubUsername:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Docker Hub username (for pulling private images)
+  DockerHubAccessToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Docker Hub access token/password
+Resources:
+  NetworkingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/cora-cfn-templates/cfn//d6cf87bbd5958a27372f1e94b4a5a688.template
+      TimeoutInMinutes: 15
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/cora-cfn-templates/cfn//9db088058faed00f0af489e7d31c6267.template
+      TimeoutInMinutes: 15
+  EC2Stack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - NetworkingStack
+    - IAMStack
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/cora-cfn-templates/cfn//c8fd946fa8310f5bc45a93f24ecc77ef.template
+      TimeoutInMinutes: 20
+      Parameters:
+        AccountId:
+          Ref: AccountId
+        InstanceType:
+          Ref: InstanceType
+        KeyPairName:
+          Ref: KeyPairName
+        DockerImageApi:
+          Ref: DockerImageApi
+        DockerImageClient:
+          Ref: DockerImageClient
+        CloudflareToken:
+          Ref: CloudflareToken
+        DockerHubUsername:
+          Ref: DockerHubUsername
+        DockerHubAccessToken:
+          Ref: DockerHubAccessToken
+Outputs:
+  VPCId:
+    Description: VPC ID from networking stack
+    Value:
+      Fn::GetAtt:
+      - NetworkingStack
+      - Outputs.VPCId
+  PublicSubnetId:
+    Description: Public Subnet ID from networking stack
+    Value:
+      Fn::GetAtt:
+      - NetworkingStack
+      - Outputs.PublicSubnetId
+  SecurityGroupId:
+    Description: Security Group ID from networking stack
+    Value:
+      Fn::GetAtt:
+      - NetworkingStack
+      - Outputs.SecurityGroupId
+  IAMRoleName:
+    Description: IAM Role Name from IAM stack
+    Value:
+      Fn::GetAtt:
+      - IAMStack
+      - Outputs.IAMRoleName
+  EC2InstanceId:
+    Description: EC2 Instance ID from EC2 stack
+    Value:
+      Fn::GetAtt:
+      - EC2Stack
+      - Outputs.EC2InstanceId
+  PublicIP:
+    Description: Elastic IP from EC2 stack
+    Value:
+      Fn::GetAtt:
+      - EC2Stack
+      - Outputs.PublicIP
