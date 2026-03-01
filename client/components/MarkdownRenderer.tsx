@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { CodeBlock } from "./CodeBlock";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -61,25 +62,27 @@ export function MarkdownRenderer({
             <li className="mb-1">{children}</li>
           ),
           code: ({ className: codeClassName, children, ...props }) => {
-            const isInline = !codeClassName?.includes("language-");
+            const match = /language-(\w+)/.exec(codeClassName || "");
+            const isInline = !match;
+
             if (isInline) {
               return (
-                <code className="rounded px-1 py-0.5 text-sm font-mono" {...props}>
+                <code
+                  className="rounded px-1 py-0.5 text-sm font-mono bg-muted"
+                  {...props}
+                >
                   {children}
                 </code>
               );
             }
+
             return (
-              <code className={codeClassName} {...props}>
-                {children}
-              </code>
+              <CodeBlock
+                code={String(children).replace(/\n$/, "")}
+                language={match[1]}
+              />
             );
           },
-          pre: ({ children }) => (
-            <pre className="bg-gray-800 text-gray-100 rounded p-3 overflow-x-auto mb-2 text-sm font-mono">
-              {children}
-            </pre>
-          ),
           a: ({ href, children }) => (
             <a
               href={href}

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Code, Loader2 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { SSEMessage } from "@/lib/types";
-import { animationConfig } from "@/lib/config";
+import { CodeBlock } from "./CodeBlock";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -52,22 +52,22 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
     setIsComplete(false);
 
     let currentIndex = 0;
-    const chars = content.split("");
-    const minDuration = animationConfig.minCharDuration;
-    const maxDuration = animationConfig.maxCharDuration;
+    const words = content.split(/(\s+)/);
+    const minDuration = 50;
+    const maxDuration = 100;
 
-    const typeNextChar = () => {
-      if (currentIndex < chars.length) {
-        setDisplayedContent(chars.slice(0, currentIndex + 1).join(""));
+    const typeNextWord = () => {
+      if (currentIndex < words.length) {
+        setDisplayedContent(words.slice(0, currentIndex + 1).join(""));
         currentIndex++;
         const randomDuration = Math.random() * (maxDuration - minDuration) + minDuration;
-        setTimeout(typeNextChar, randomDuration);
+        setTimeout(typeNextWord, randomDuration);
       } else {
         setIsComplete(true);
       }
     };
 
-    const initialDelay = setTimeout(typeNextChar, 300);
+    const initialDelay = setTimeout(typeNextWord, 300);
     return () => clearTimeout(initialDelay);
   }, [content, step]);
 
@@ -145,7 +145,7 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
           </div>
 
           <div className="text-sm text-foreground">
-            <TypewriterContent content={displayedContent} isComplete={isComplete} />
+            <TypewriterContent content={displayedContent} />
           </div>
 
           {step.code_action && !isPlanning && (
@@ -164,57 +164,12 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
   );
 }
 
-function TypewriterContent({ content, isComplete }: { content: string; isComplete: boolean }) {
-  const [showCursor, setShowCursor] = useState(true);
-
-  useEffect(() => {
-    if (isComplete) {
-      const timer = setTimeout(() => setShowCursor(false), 500);
-      return () => clearTimeout(timer);
-    }
-
-    const interval = setInterval(() => {
-      setShowCursor((prev) => !prev);
-    }, 530);
-    return () => clearInterval(interval);
-  }, [isComplete]);
-
-  return (
-    <span className="whitespace-pre-wrap">
-      {content}
-      <motion.span
-        animate={{ opacity: showCursor ? 1 : 0 }}
-        transition={{ duration: 0.1 }}
-        className="inline-block w-0.5 h-4 ml-0.5 align-middle bg-primary"
-      />
-    </span>
-  );
+function TypewriterContent({ content }: { content: string }) {
+  return <span className="whitespace-pre-wrap">{content}</span>;
 }
 
 function CodePreview({ code }: { code: string }) {
-  const preview = code.length > 200 ? code.slice(0, 200) + "..." : code;
-  const [isExpanded, setIsExpanded] = useState(false);
-  const displayCode = isExpanded ? code : preview;
-  const isTruncated = code.length > 200;
-
-  return (
-    <div className="rounded bg-gray-900 text-gray-100 text-xs font-mono overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800/50">
-        <span className="text-gray-400 text-[10px] uppercase tracking-wider">Code</span>
-        {isTruncated && (
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            {isExpanded ? "Show less" : "Show more"}
-          </button>
-        )}
-      </div>
-      <pre className="px-3 py-2 overflow-x-auto">
-        <code>{displayCode}</code>
-      </pre>
-    </div>
-  );
+  return <CodeBlock code={code} language="python" maxHeight="200px" />;
 }
 
 export function useTypewriter(text: string, speed: number = 30) {

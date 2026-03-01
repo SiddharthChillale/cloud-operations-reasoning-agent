@@ -60,7 +60,7 @@ export function ChatInput({
   return (
     <div
       className={cn(
-        "relative rounded-3xl border border-border/70 bg-background/80 shadow-xl shadow-primary/5 backdrop-blur",
+        "relative w-[60vw] mx-auto rounded-3xl border border-border/70 bg-background/80 shadow-xl shadow-primary/5 backdrop-blur",
         className,
       )}
     >

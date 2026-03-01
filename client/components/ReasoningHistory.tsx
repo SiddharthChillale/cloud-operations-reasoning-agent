@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp, Brain, Code, CheckCircle2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Brain, Code, CheckCircle2, Sparkles } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { SSEMessage } from "@/lib/types";
+import { CodeBlock } from "./CodeBlock";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -26,6 +27,17 @@ function parseThought(modelOutput: string): string {
   return modelOutput;
 }
 
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/^#+\s+/gm, "")
+    .replace(/^[-*]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "");
+}
+
 export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -40,19 +52,18 @@ export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={cn("rounded-lg border border-border overflow-hidden", className)}
+      className={cn("rounded-lg overflow-hidden", className)}
     >
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className={cn(
           "flex items-center justify-between w-full px-4 py-3",
           "text-left transition-colors",
-          "hover:bg-muted/50"
         )}
       >
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <Brain className="w-4 h-4 text-purple-500" />
+            <Sparkles className="w-8 h-8 text-purple-500" />
             <span className="text-sm font-medium">Reasoning</span>
           </div>
           <span className="text-xs text-muted-foreground">
@@ -83,7 +94,7 @@ export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 space-y-3 border-t border-border/50">
+            <div className="px-4 pb-4 space-y-2 border-t border-border/50">
               {steps.map((step, index) => (
                 <StepItem key={index} step={step} stepIndex={index} />
               ))}
@@ -97,7 +108,9 @@ export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
 
 function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set());
+  const isPlanning = step.step_type === "PlanningStep";
+  const defaultFields = isPlanning ? new Set<string>() : new Set<string>(["thought"]);
+  const [expandedFields, setExpandedFields] = useState<Set<string>>(defaultFields);
 
   const toggleField = (field: string) => {
     setExpandedFields((prev) => {
@@ -112,7 +125,6 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
   };
 
   const isFieldExpanded = (field: string) => expandedFields.has(field);
-  const isPlanning = step.step_type === "PlanningStep";
   const thought = step.model_output ? parseThought(step.model_output) : "";
 
   return (
@@ -124,7 +136,7 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
     >
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 text-sm font-medium w-full hover:bg-muted/30 rounded px-2 py-1 -ml-2 transition-colors"
+        className="flex items-center gap-2 text-sm font-medium w-full rounded px-2 py-1 -ml-2 transition-colors"
       >
         {isPlanning ? (
           <Brain className="w-4 h-4 text-purple-500 flex-shrink-0" />
@@ -158,17 +170,11 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
           >
             <div className="pl-6 pr-2 py-2 space-y-2 text-sm">
               {isPlanning && step.plan && (
-                <div className="rounded bg-purple-50 dark:bg-purple-950/30 p-2 text-xs text-foreground">
-                  <div className="font-medium text-purple-600 mb-1">Plan</div>
-                  <p className="whitespace-pre-wrap">{step.plan}</p>
-                </div>
+                <p className="italic whitespace-pre-wrap">{stripMarkdown(step.plan)}</p>
               )}
 
               {!isPlanning && thought && (
-                <div className="rounded bg-blue-50 dark:bg-blue-950/30 p-2 text-xs text-foreground">
-                  <div className="font-medium text-blue-600 mb-1">Thought</div>
-                  <p className="whitespace-pre-wrap">{thought}</p>
-                </div>
+                <p className="italic whitespace-pre-wrap">{thought}</p>
               )}
 
               {step.code_action && (
@@ -177,9 +183,12 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
                   isExpanded={isFieldExpanded("code_action")}
                   onToggle={() => toggleField("code_action")}
                 >
-                  <pre className="text-xs bg-gray-900 text-gray-100 rounded p-2 overflow-x-auto">
-                    <code>{step.code_action}</code>
-                  </pre>
+                  <CodeBlock
+                    code={step.code_action}
+                    language="python"
+                    showHeader={false}
+                    maxHeight="200px"
+                  />
                 </CollapsibleSection>
               )}
 
