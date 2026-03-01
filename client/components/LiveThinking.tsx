@@ -69,7 +69,7 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
 
     const initialDelay = setTimeout(typeNextChar, 300);
     return () => clearTimeout(initialDelay);
-  }, [step?.step_number, content]);
+  }, [content, step]);
 
   if (!step) {
     return (

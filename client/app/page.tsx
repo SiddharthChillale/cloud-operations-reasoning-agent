@@ -110,7 +110,7 @@ export default function Home() {
                 <h4 className="text-2xl font-bold mb-4">One-Shot Execution</h4>
                 <p className="text-muted-foreground text-lg max-w-md">
                   Complete complex multi-step cloud audits in a single inference turn. 
-                  Minimize latency and eliminate redundant "chatty" interactions.
+                  Minimize latency and eliminate redundant &ldquo;chatty&rdquo; interactions.
                 </p>
               </div>
 
@@ -145,7 +145,7 @@ export default function Home() {
                     </div>
                     <h4 className="text-2xl font-bold mb-4">Evolving Skills</h4>
                     <p className="text-muted-foreground text-lg max-w-md">
-                      Code Actions can be saved as parameterized skills, allowing CORA's capabilities to evolve at runtime.
+                      Code Actions can be saved as parameterized skills, allowing CORA&apos;s capabilities to evolve at runtime.
                     </p>
                   </div>
                   <div className="flex-1 p-4 rounded-xl bg-muted font-mono text-xs text-muted-foreground overflow-hidden">

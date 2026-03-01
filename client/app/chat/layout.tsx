@@ -71,7 +71,8 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   });
 
   const handleNewChat = () => {
-    createSessionMutation.mutate(undefined);
+    const timestamp = Date.now();
+    router.push(`/chat?new=${timestamp}`);
   };
 
   const toggleSidebar = () => {
@@ -192,7 +193,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
         <SessionProvider>
           {/* Chat Area Header */}
-          <header className="h-16 border-b flex items-center justify-between px-6 bg-background/80 backdrop-blur-md sticky top-0 z-30">
+          <header className="h-16 flex items-center justify-between px-6 bg-background/80 backdrop-blur-md sticky top-0 z-30">
             <div className="flex items-center gap-3">
               <Link href="/" className="flex items-center gap-2 group">
                 <div className="relative w-8 h-8 transition-transform group-hover:scale-105">

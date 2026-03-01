@@ -32,35 +32,53 @@ export function useChatStream({
 }: UseChatStreamOptions): UseChatStreamReturn {
   const [isStreaming, setIsStreaming] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const runActiveRef = useRef(false);
 
-  const stopStream = useCallback(async () => {
-    if (eventSourceRef.current) {
-      console.log("[useChatStream] Interrupting agent and closing EventSource");
-      try {
-        await interruptSession(sessionId);
-      } catch (e) {
-        console.warn("[useChatStream] Failed to interrupt session:", e);
+  const closeEventSource = useCallback(
+    async (shouldInterrupt: boolean) => {
+      const currentSource = eventSourceRef.current;
+      if (!currentSource) {
+        setIsStreaming(false);
+        return;
       }
-      eventSourceRef.current.close();
+
       eventSourceRef.current = null;
-    }
-    setIsStreaming(false);
-  }, [sessionId]);
+      currentSource.close();
+
+      if (shouldInterrupt && runActiveRef.current && sessionId) {
+        console.log("[useChatStream] Interrupting agent and closing EventSource");
+        try {
+          await interruptSession(sessionId);
+        } catch (e) {
+          console.info("[useChatStream] Interrupt not needed or failed gracefully:", e);
+        }
+      }
+
+      runActiveRef.current = false;
+      setIsStreaming(false);
+    },
+    [sessionId]
+  );
+
+  const stopStream = useCallback(() => {
+    void closeEventSource(true);
+  }, [closeEventSource]);
 
   // Wrapper for external use (e.g., stop button) that doesn't call interrupt
   const closeStream = useCallback(() => {
-    if (eventSourceRef.current) {
-      console.log("[useChatStream] Closing EventSource");
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    setIsStreaming(false);
-  }, []);
+    void closeEventSource(false);
+  }, [closeEventSource]);
 
   const startStream = useCallback(
     (query: string) => {
+      if (!sessionId) {
+        console.warn("[useChatStream] Tried to start stream without a sessionId");
+        return;
+      }
+
       console.log("[useChatStream] Starting stream for query:", query);
-      stopStream();
+      void closeEventSource(false);
+      runActiveRef.current = false;
 
       const url = `${API_BASE}/sessions/${sessionId}/stream?${new URLSearchParams(
         { query }
@@ -74,6 +92,7 @@ export function useChatStream({
 
       eventSource.onopen = () => {
         console.log("[useChatStream] EventSource opened");
+        runActiveRef.current = true;
       };
 
       eventSource.onmessage = (event) => {
@@ -115,6 +134,7 @@ export function useChatStream({
 
       eventSource.onerror = (error) => {
         console.error("[useChatStream] EventSource error:", error);
+        runActiveRef.current = false;
         // Just close the EventSource without interrupting - don't call interruptSession on errors
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
@@ -123,7 +143,7 @@ export function useChatStream({
         setIsStreaming(false);
       };
     },
-    [sessionId, stopStream, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
+    [sessionId, closeEventSource, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
   );
 
   useEffect(() => {
