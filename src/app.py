@@ -102,9 +102,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app = FastAPI(title="CORA Web API", lifespan=lifespan)
-
-
 def create_step_callback(session_id: str, run_number: int):
     step_counter = {"count": 0}
     try:
