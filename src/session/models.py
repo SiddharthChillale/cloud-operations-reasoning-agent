@@ -66,7 +66,9 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String, ForeignKey("sessions.id"))
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="CASCADE")
+    )
     role: Mapped[MessageRole] = mapped_column(SQLEnum(MessageRole))
     content: Mapped[str] = mapped_column(String)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -78,7 +80,9 @@ class AgentRunMetrics(Base):
     __tablename__ = "agent_run_metrics"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String, ForeignKey("sessions.id"))
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="CASCADE")
+    )
     run_number: Mapped[int] = mapped_column(Integer)
     step_number: Mapped[int] = mapped_column(Integer, default=1)
     step_type: Mapped[str] = mapped_column(String)

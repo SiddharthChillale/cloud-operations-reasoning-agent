@@ -1,144 +1,82 @@
 import os
-from pathlib import Path
 from typing import Optional
-
-import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
 
-CONFIG_DIR = Path.home() / ".config" / "cora"
-CONFIG_FILE = "config.yaml"
-REPO_CONFIG_FILE = Path(__file__).parent.parent / ".config" / "cora.yaml"
 
-DEFAULT_THEME = "gruvbox"
-
-
-def _load_yaml_config(config_path: Path) -> dict:
-    if not config_path.exists():
-        return {}
-    with open(config_path) as f:
-        return yaml.safe_load(f) or {}
-
-
-def _get_env_or_config(
-    config: dict, *keys: str, env_var: Optional[str] = None
-) -> Optional[str]:
-    value = config
-    for key in keys:
-        if isinstance(value, dict):
-            value = value.get(key)
-        else:
-            value = None
-            break
-    if value:
-        return str(value)
-    if env_var:
-        return os.getenv(env_var)
-    return None
-
-
-def load_config() -> dict:
-    config = _load_yaml_config(CONFIG_DIR / CONFIG_FILE)
-    if not config:
-        config = _load_yaml_config(REPO_CONFIG_FILE)
-    return config
+def _get_required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
 
 class Config:
     _instance: Optional["Config"] = None
-    _config: dict = {}
 
     def __new__(cls) -> "Config":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._config = load_config()
         return cls._instance
 
     @property
-    def aws_profile(self) -> Optional[str]:
-        return _get_env_or_config(self._config, "aws_profile", env_var="AWS_PROFILE")
+    def database_url(self) -> str:
+        return _get_required_env("DATABASE_URL")
 
     @property
-    def llm_provider(self) -> str:
-        return (
-            _get_env_or_config(self._config, "llm", "provider", env_var="LLM_PROVIDER")
-            or "openrouter"
-        )
+    def llm_provider_name(self) -> str:
+        return _get_required_env("LLM_PROVIDER_NAME")
 
     @property
     def llm_model_id(self) -> str:
-        return (
-            _get_env_or_config(self._config, "llm", "model_id", env_var="LLM_MODEL_ID")
-            or "qwen/qwen3-coder"
-        )
+        return _get_required_env("LLM_MODEL_ID")
 
     @property
-    def llm_api_base(self) -> Optional[str]:
-        return _get_env_or_config(
-            self._config, "llm", "api_base", env_var="LLM_API_BASE"
-        )
+    def llm_api_base(self) -> str:
+        return _get_required_env("LLM_API_BASE")
 
     @property
-    def llm_api_key(self) -> Optional[str]:
-        provider = self.llm_provider
-        if provider == "openrouter":
-            return _get_env_or_config(
-                self._config, "llm", "api_key", env_var="OPENROUTER_KEY"
-            )
-        elif provider == "huggingface":
-            return _get_env_or_config(
-                self._config, "llm", "api_key", env_var="HF_TOKEN"
-            )
-        elif provider == "anthropic":
-            return _get_env_or_config(
-                self._config, "llm", "api_key", env_var="ANTHROPIC_KEY"
-            )
-        return _get_env_or_config(self._config, "llm", "api_key", env_var="LLM_API_KEY")
+    def llm_api_key(self) -> str:
+        return _get_required_env("LLM_API_KEY")
 
-    def has_aws_profile(self) -> bool:
-        return self.aws_profile is not None
+    @property
+    def modal_token_id(self) -> str:
+        return _get_required_env("MODAL_TOKEN_ID")
+
+    @property
+    def modal_token_secret(self) -> str:
+        return _get_required_env("MODAL_TOKEN_SECRET")
+
+    @property
+    def modal_user_secret(self) -> str:
+        return _get_required_env("MODAL_USER_SECRET")
+
+    @property
+    def modal_aws_secret_name(self) -> str:
+        return _get_required_env("MODAL_AWS_SECRET_NAME")
+
+    @property
+    def aws_profile(self) -> Optional[str]:
+        return os.getenv("AWS_PROFILE")
 
     @property
     def langfuse_secret_key(self) -> Optional[str]:
-        return _get_env_or_config(
-            self._config, "langfuse", "secret_key", env_var="LANGFUSE_SECRET_KEY"
-        )
+        return os.getenv("LANGFUSE_SECRET_KEY")
 
     @property
     def langfuse_public_key(self) -> Optional[str]:
-        return _get_env_or_config(
-            self._config, "langfuse", "public_key", env_var="LANGFUSE_PUBLIC_KEY"
-        )
+        return os.getenv("LANGFUSE_PUBLIC_KEY")
 
     @property
     def langfuse_base_url(self) -> Optional[str]:
-        return _get_env_or_config(
-            self._config, "langfuse", "base_url", env_var="LANGFUSE_BASE_URL"
-        )
+        return os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
 
     def has_langfuse(self) -> bool:
-        return (
-            self.langfuse_secret_key is not None
-            and self.langfuse_public_key is not None
-        )
+        return bool(self.langfuse_secret_key and self.langfuse_public_key)
 
-    @property
-    def executor_type(self) -> Optional[str]:
-        return _get_env_or_config(
-            self._config, "executor_type", env_var="EXECUTOR_TYPE"
-        )
-
-    @property
-    def theme(self) -> str:
-        return _get_env_or_config(self._config, "theme") or DEFAULT_THEME
-
-    def save_theme(self, theme_name: str) -> None:
-        self._config["theme"] = theme_name
-        config_path = CONFIG_DIR / CONFIG_FILE
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
-            yaml.dump(self._config, f, default_flow_style=False)
+    def has_aws_profile(self) -> bool:
+        return self.aws_profile is not None
 
 
 def get_config() -> Config:

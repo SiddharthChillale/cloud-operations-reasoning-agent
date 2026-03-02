@@ -1,4 +1,3 @@
-import os
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -6,6 +5,7 @@ from typing import List, Optional
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
+from src.config import get_config
 from src.session.models import (
     Base,
     Message,
@@ -19,11 +19,8 @@ from src.session.models import (
 class SessionDatabase:
     def __init__(self, db_url: Optional[str] = None):
         if db_url is None:
-            db_url = os.getenv("DATABASE_URL")
-            if not db_url:
-                # Fallback for local dev if DATABASE_URL is missing,
-                # though user said no need for aiosqlite, we still need a valid URL.
-                raise ValueError("DATABASE_URL environment variable is required")
+            # Strictly use config which enforces DATABASE_URL presence
+            db_url = get_config().database_url
 
         # Ensure we use the asyncpg driver
         if db_url.startswith("postgresql://"):

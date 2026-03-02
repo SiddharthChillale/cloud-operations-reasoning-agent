@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 from smolagents.memory import ActionStep, PlanningStep, FinalAnswerStep
 
+from src.config import get_config
 from src.agents import SessionAgentFactory
 from src.session.database import SessionDatabase
 from src.session.manager import SessionManager
@@ -22,6 +23,9 @@ from src.utils.logging import setup_logging, get_logger
 from src.utils.serializers import serialize_agent_output
 
 load_dotenv()
+
+# Strict configuration loading
+config = get_config()
 
 setup_logging(log_file="webapp.log")
 logger = get_logger(__name__)
@@ -55,18 +59,34 @@ def get_agent_factory() -> SessionAgentFactory:
 async def lifespan(app: FastAPI):
     global _db, _session_manager, _agent_factory
 
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        logger.error("DATABASE_URL environment variable is missing")
-        if os.getenv("VERCEL"):
-            raise ValueError("DATABASE_URL is required for Vercel deployment")
+    # Initialize OTEL if Langfuse is configured
+    if config.has_langfuse():
+        try:
+            from langfuse import get_client
+ 
+            langfuse = get_client()
+            
+            # Verify connection
+            if langfuse.auth_check():
+                logger.info("Langfuse client is authenticated and ready!")
+            else:
+                raise
+            from openinference.instrumentation.smolagents import SmolagentsInstrumentor
+            SmolagentsInstrumentor().instrument()
+            
+            logger.info("OTEL instrumentation enabled with Langfuse")
+        except Exception as e:
+            logger.warning(f"Failed to initialize OTEL instrumentation: {e}")
 
-    _db = SessionDatabase(db_url=db_url)
+    # Database initialization
+    _db = SessionDatabase(db_url=config.database_url)
     await _db.init_db()
 
-    _session_manager = SessionManager(db_url=db_url)
+    # Session manager initialization
+    _session_manager = SessionManager(db_url=config.database_url)
     await _session_manager.initialize()
 
+    # Agent factory initialization
     _agent_factory = SessionAgentFactory(_session_manager)
     logger.info("Web UI initialized with PostgreSQL database")
     yield
