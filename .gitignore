@@ -21,8 +21,11 @@ client/node_modules/
 
 *node_modules/
 
+iac/cdk/cdk.out/
+.DS_Store
 client/.next/
 uploads/
 *.DS_Store
 
 CORA-Cloud-Operations-Reasoning-Agent/
+cora-fastapi-version.zip

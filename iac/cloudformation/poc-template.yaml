@@ -1,0 +1,351 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CORA POC - Single EC2 with Cloudflare Tunnel and Google Auth'
+
+Parameters:
+  AccountId:
+    Type: String
+    Description: AWS Account ID (12 digits)
+    AllowedPattern: '^\d{12}$'
+    ConstraintDescription: Must be 12 digits
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: EC2 Key Pair name for SSH access (optional)
+
+  DockerImageApi:
+    Type: String
+    Description: Docker image for FastAPI server (e.g., youruser/cora:latest)
+
+  DockerImageClient:
+    Type: String
+    Description: Docker image for Next.js client (e.g., youruser/cora-client:latest)
+
+  CloudflareToken:
+    Type: String
+    NoEcho: true
+    Description: Cloudflare Tunnel token
+
+  DockerHubUsername:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Docker Hub username (for pulling private images)
+
+  DockerHubAccessToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Docker Hub access token/password
+
+Resources:
+  # VPC - Minimal standalone VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/24
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub cora-poc-vpc-${AWS::StackName}
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub cora-poc-igw-${AWS::StackName}
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: !Sub cora-poc-public-subnet-${AWS::StackName}
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub cora-poc-public-rt-${AWS::StackName}
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for CORA POC EC2
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub cora-poc-sg-${AWS::StackName}
+
+  # IAM Role with ReadOnlyAccess + Cross-Account Assume
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub cora-poc-ec2-role-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+      Policies:
+        - PolicyName: !Sub assume-cross-account-role-${AWS::StackName}
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: "*"
+
+  # Instance Profile
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub cora-poc-instance-profile-${AWS::StackName}
+      Roles:
+        - !Ref EC2Role
+
+  # EC2 Instance
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          
+          # Install Docker (AL2)
+          yum update -y
+          amazon-linux-extras install docker -y
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Install Docker Compose
+          curl -L "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          
+          # Install cloudflared
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          
+          # Install AWS CloudWatch Agent
+          yum install -y amazon-cloudwatch-agent
+          
+          # Create docker-compose.yml
+          mkdir -p /opt/cora
+          
+          cat > /opt/cora/docker-compose.yml << 'COMPOSE_EOF'
+          version: '3.8'
+          
+          services:
+            api:
+              image: ${DockerImageApi}
+              container_name: cora-api
+              ports:
+                - "8000:8000"
+              restart: unless-stopped
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+            
+            client:
+              image: ${DockerImageClient}
+              container_name: cora-client
+              command: sh -c "npm run build && npm run start"
+              ports:
+                - "3000:3000"
+              environment:
+                - NEXT_PUBLIC_API_URL=http://localhost:8000
+              restart: unless-stopped
+              depends_on:
+                - api
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:3000"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+          COMPOSE_EOF
+          
+          # Create CloudWatch Agent config
+          mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/agent.json << 'CW_EOF'
+          {
+            "logs": {
+              "force_flush_interval": 5,
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/var/log/cora.log",
+                      "log_group_name": "/aws/ec2/cora-poc",
+                      "log_stream_name": "{instance_id}/cora",
+                      "retention_in_days": 7
+                    },
+                    {
+                      "file_path": "/var/log/cloudflared.log",
+                      "log_group_name": "/aws/ec2/cora-poc",
+                      "log_stream_name": "{instance_id}/cloudflared",
+                      "retention_in_days": 7
+                    },
+                    {
+                      "file_path": "/var/log/docker.log",
+                      "log_group_name": "/aws/ec2/cora-poc",
+                      "log_stream_name": "{instance_id}/docker",
+                      "retention_in_days": 7
+                    }
+                  ]
+                }
+              }
+            }
+          }
+          CW_EOF
+          
+          # Start CloudWatch Agent
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/agent.json
+          
+          # Start Docker Compose
+          cd /opt/cora
+          
+          # Login to Docker Hub if credentials provided
+          if [ -n "${DockerHubUsername}" ] && [ -n "${DockerHubAccessToken}" ]; then
+              echo "${DockerHubAccessToken}" | docker login -u "${DockerHubUsername}" --password-stdin
+          fi
+          
+          docker-compose pull
+          docker-compose up -d
+          
+          # Wait for services to be ready
+          sleep 10
+          
+          # Start Cloudflare Tunnel
+          nohup cloudflared tunnel --url http://localhost:3000 --token ${CloudflareToken} > /var/log/cloudflared.log 2>&1 &
+          
+          echo "CORA POC setup complete" >> /var/log/cora.log
+          echo "Cloudflare tunnel started" >> /var/log/cloudflared.log
+
+      Tags:
+        - Key: Name
+          Value: !Sub cora-poc-ec2-${AWS::StackName}
+
+  # Elastic IP
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref EC2Instance
+      Tags:
+        - Key: Name
+          Value: !Sub cora-poc-eip-${AWS::StackName}
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC-ID
+
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnet-ID
+
+  EC2InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref EC2Instance
+    Export:
+      Name: !Sub ${AWS::StackName}-EC2Instance-ID
+
+  PublicIP:
+    Description: Elastic IP of EC2 Instance
+    Value: !Ref ElasticIP
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicIP
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref InstanceSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroup-ID
+
+  IAMRoleName:
+    Description: IAM Role with ReadOnlyAccess
+    Value: !Ref EC2Role
+    Export:
+      Name: !Sub ${AWS::StackName}-IAMRole
+
+  CloudWatchLogGroup:
+    Description: CloudWatch Log Group
+    Value: !Sub arn:aws:logs:${AWS::Region}:${AccountId}:log-group:/aws/ec2/cora-poc:*
+    Export:
+      Name: !Sub ${AWS::StackName}-LogGroup

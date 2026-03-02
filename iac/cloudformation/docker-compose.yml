@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  api:
+    image: ${DOCKER_IMAGE_API:-youruser/cora:latest}
+    container_name: cora-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - cora-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cora-network
+    pull_policy: always
+
+  client:
+    image: ${DOCKER_IMAGE_CLIENT:-youruser/cora-client:latest}
+    container_name: cora-client
+    command: sh -c "npm run build && npm run start"
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cora-network
+    pull_policy: always
+
+volumes:
+  cora-data:
+    driver: local
+
+networks:
+  cora-network:
+    driver: bridge

@@ -63,7 +63,7 @@ export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
       >
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <Sparkles className="w-8 h-8 text-purple-500" />
+            <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium">Reasoning</span>
           </div>
           <span className="text-xs text-muted-foreground">
