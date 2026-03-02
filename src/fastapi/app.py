@@ -7,6 +7,7 @@ from typing import Any, Coroutine
 import anyio
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
@@ -34,35 +35,116 @@ _active_runs: dict[str, dict] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _db, _session_manager, _agent_factory
-    _db = SessionDatabase()
+    # Use a persistent path for the database in production (Modal)
+    db_dir = Path("/root/.cora")
+    db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = db_dir / "sessions.db"
+
+    _db = SessionDatabase(db_path=db_path)
     await _db.init_db()
     _session_manager = SessionManager()
     await _session_manager.initialize()
     _agent_factory = SessionAgentFactory(_session_manager)
-    logger.info("Web UI initialized")
+    logger.info(f"Web UI initialized with DB at {db_path}")
     yield
     logger.info("Web UI shutting down")
 
 
 app = FastAPI(title="CORA Web API", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 UPLOADS_DIR = Path("uploads")
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    response = await call_next(request)
-    origin = request.headers.get("origin")
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        response.headers["Access-Control-Allow-Methods"] = (
-            "GET, POST, PATCH, DELETE, OPTIONS"
-        )
-    return response
+def create_step_callback(session_id: str, run_number: int):
+    """Create a step callback that pushes events to queue and saves to DB."""
+    step_counter = {"count": 0}
+    try:
+        app_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        app_loop = None
+
+    def callback(memory_step: Any) -> None:
+        step_index = step_counter["count"]
+        step_counter["count"] += 1
+        step_number = step_index + 1
+        step_type = type(memory_step).__name__
+
+        event_data = {
+            "session_id": session_id,
+            "run_number": run_number,
+            "step_number": step_number,
+            "step_type": step_type,
+        }
+
+        if isinstance(memory_step, PlanningStep):
+            event_data.update(
+                {
+                    "type": "planning",
+                    "plan": str(memory_step.plan) if memory_step.plan else "",
+                }
+            )
+        elif isinstance(memory_step, ActionStep):
+            event_data.update(
+                {
+                    "type": "action",
+                    "model_output": str(memory_step.model_output)
+                    if memory_step.model_output
+                    else "",
+                    "code_action": str(memory_step.code_action)
+                    if memory_step.code_action
+                    else "",
+                    "observations": str(memory_step.observations)
+                    if memory_step.observations
+                    else "",
+                    "error": str(memory_step.error) if memory_step.error else None,
+                    "is_final_answer": memory_step.is_final_answer,
+                }
+            )
+        elif isinstance(memory_step, FinalAnswerStep):
+            event_data.update(
+                {
+                    "type": "final",
+                    "output": str(memory_step.output) if memory_step.output else "",
+                }
+            )
+        else:
+            return
+
+        # Add token usage if available
+        if hasattr(memory_step, "token_usage") and memory_step.token_usage:
+            tu = memory_step.token_usage
+            event_data["token_usage"] = {
+                "input_tokens": getattr(tu, "input_tokens", 0),
+                "output_tokens": getattr(tu, "output_tokens", 0),
+                "total_tokens": getattr(tu, "total_tokens", 0),
+            }
+
+        # Safe queue push from thread
+        if app_loop and session_id in _step_queues:
+            app_loop.call_soon_threadsafe(
+                _step_queues[session_id].put_nowait, event_data
+            )
+
+        # Safe DB save from thread
+        if app_loop and _session_manager:
+            asyncio.run_coroutine_threadsafe(
+                _session_manager.save_step_token_from_step(
+                    session_id, run_number, step_index, memory_step
+                ),
+                app_loop,
+            )
+
+    return callback
 
 
 @app.options("/{full_path:path}")
@@ -268,37 +350,47 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
                 try:
                     return agent.run(query, reset=False)
                 except Exception as e:
+                    logger.exception(f"Error in agent.run for session {session_id}")
                     return e
 
             async def run_agent_async():
                 nonlocal response, agent_completed, agent_exception
                 try:
+                    # Run agent in thread pool to avoid blocking event loop
                     response = await anyio.to_thread.run_sync(run_agent)
                     if isinstance(response, Exception):
                         agent_exception = response
-                    agent_completed = True
                 except Exception as e:
+                    logger.exception(
+                        f"Exception in run_agent_async for session {session_id}"
+                    )
                     agent_exception = e
+                finally:
                     agent_completed = True
 
             async def read_queue():
-                nonlocal agent_completed, is_cancelled
+                nonlocal agent_completed, is_cancelled, agent_exception
                 while not agent_completed or not step_queue.empty():
+                    # If an exception occurred, we want to stop reading and let the main loop handle it
+                    if agent_exception:
+                        break
+
                     try:
                         event_data = await asyncio.wait_for(
-                            step_queue.get(), timeout=0.5
+                            step_queue.get(), timeout=0.2
                         )
                         event_type = event_data.get("type", "step")
 
                         if event_type == "cancelled":
                             is_cancelled = True
                             break
-                        elif event_type == "planning":
-                            yield {"data": json.dumps(event_data)}
-                        elif event_type == "action":
+                        elif event_type in ["planning", "action"]:
                             yield {"data": json.dumps(event_data)}
                     except asyncio.TimeoutError:
-                        pass
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error reading from step queue: {e}")
+                        break
 
             agent_task = asyncio.create_task(run_agent_async())
             _active_runs[session_id]["task"] = agent_task

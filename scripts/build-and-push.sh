@@ -7,6 +7,7 @@ set -e
 ###############################################################################
 
 # Configuration
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
 : ${DOCKER_HUB_USERNAME:=""}
 : ${DOCKER_HUB_PASSWORD:=""}
 : ${IMAGE_TAG:="latest"}
@@ -135,29 +136,24 @@ log_info ""
 
 # Copy required files to build context (needed for Docker image)
 log_info "Preparing build context..."
+mkdir -p .docker_stage
 
 # Copy Modal credentials if exists
 if [ -f ~/.modal.toml ]; then
     log_info "Copying ~/.modal.toml to build context..."
-    cp ~/.modal.toml ./modal.toml
-    MODAL_CLEANUP=true
+    cp ~/.modal.toml .docker_stage/modal.toml
 else
     log_warn "~/.modal.toml not found - Modal execution will not work"
-    MODAL_CLEANUP=false
+    touch .docker_stage/modal.toml # Create empty to avoid Docker COPY failure
 fi
 
 # Copy config file if exists
 if [ -f ~/.config/cora/config.yaml ]; then
     log_info "Copying ~/.config/cora/config.yaml to build context..."
-    mkdir -p .config/cora
-    cp ~/.config/cora/config.yaml ./.config/cora.yaml
-    CONFIG_CLEANUP=true
-elif [ -f ./.config/cora.yaml ]; then
-    log_info "Using existing .config/cora.yaml in project root..."
-    CONFIG_CLEANUP=false
+    cp ~/.config/cora/config.yaml .docker_stage/config.yaml
 else
     log_warn "~/.config/cora/config.yaml not found - LLM/Langfuse config will not work"
-    CONFIG_CLEANUP=false
+    touch .docker_stage/config.yaml # Create empty to avoid Docker COPY failure
 fi
 
 # Login to Docker Hub
@@ -170,7 +166,7 @@ if [ "$SKIP_API" = false ]; then
     log_info "Building API image..."
     log_info "=========================================="
     
-    docker build \
+    docker build --platform linux/amd64 \
         -t "$API_IMAGE" \
         -t "${DOCKER_HUB_USERNAME}/${API_IMAGE_NAME}:latest" \
         .
@@ -190,7 +186,7 @@ if [ "$SKIP_CLIENT" = false ]; then
     log_info "Building Client image..."
     log_info "=========================================="
     
-    docker build \
+    docker build --platform linux/amd64 \
         -t "$CLIENT_IMAGE" \
         -t "${DOCKER_HUB_USERNAME}/${CLIENT_IMAGE_NAME}:latest" \
         -f client/Dockerfile \
@@ -208,13 +204,8 @@ fi
 # Logout from Docker Hub
 docker logout
 
-# Cleanup copied files
-if [ "$MODAL_CLEANUP" = true ]; then
-    rm -f ./modal.toml
-fi
-if [ "$CONFIG_CLEANUP" = true ]; then
-    rm -rf .config
-fi
+# Cleanup staging directory
+rm -rf .docker_stage
 
 log_info "=========================================="
 log_info "All images built and pushed successfully!"

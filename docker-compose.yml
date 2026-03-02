@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  cora-api:
+    image: muchimuchi/cora-api:latest
+    container_name: cora-api
+    ports:
+      - "80:8000"
+    volumes:
+      # Bind the SQLite database directory for persistence
+      - ~/.cora:/root/.cora
+      # Bind the .env file for secrets/environment variables
+      - ./.env:/app/.env
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
