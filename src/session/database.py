@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
 from src.config import get_config
 from src.session.models import (
@@ -26,7 +27,7 @@ class SessionDatabase:
         if db_url.startswith("postgresql://"):
             db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-        self.engine = create_async_engine(db_url, echo=False)
+        self.engine = create_async_engine(db_url, poolclass=NullPool, connect_args={"statement_cache_size": 0}, echo=False)
         self.async_session = async_sessionmaker(
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
