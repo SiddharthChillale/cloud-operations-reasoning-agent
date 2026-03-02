@@ -47,7 +47,7 @@ def cora_agent(
     model = create_model()
 
     tools = []
-    additional_authorized_imports = ["boto3"]
+    additional_authorized_imports = ["boto3", "botocore.exceptions"]
     instructions = f"""AWS Regions that are relevant: {", ".join(aws_regions)}."""
     if config.has_aws_profile() and not use_sandbox_execution:
         instructions += """Use the create_boto_client tool for creating a boto client, as boto3 library is not available to you."""

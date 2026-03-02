@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "CORA stands for Cloud Operations Reasoning Agent. Cora helps developers and architects query their AWS architecture for resources and reason about the resource configurations."
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{name = "Siddharth Chillale"}]
+authors = [
+    { name = "Siddharth Chillale" }
+]
 dependencies = [
     "boto3>=1.42.52",
     "python-dotenv",
@@ -14,24 +16,28 @@ dependencies = [
     "pyyaml>=6.0.0",
     "smolagents[modal,telemetry]>=1.24.0",
     "uvicorn>=0.24.0",
-    "aiosqlite>=0.22.1",
     "jinja2>=3.1.6",
     "python-multipart>=0.0.17",
     "sse-starlette>=2.2.1",
+    "sqlalchemy>=2.0.25",
+    "asyncpg>=0.29.0",
+    "greenlet>=3.0.3",
 ]
 
-[project.optional-dependencies]
-
-# [build-system]
-# requires = ["hatchling"]
-# build-backend = "hatchling.build"
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
+[tool.uv]
+package = true
+
 [project.scripts]
 cora = "main:main"
 cora-web = "src.fastapi.app:main"
+app = "src.fastapi.app:app"
 
 [dependency-groups]
 dev = [

@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class SessionManager:
-    def __init__(self, db_path: Optional[Path] = None):
-        self.db = SessionDatabase(db_path)
+    def __init__(self, db_url: Optional[str] = None):
+        self.db = SessionDatabase(db_url)
         self._current_session: Optional[Session] = None
         self._sessions: list[Session] = []
         self._initialized = False

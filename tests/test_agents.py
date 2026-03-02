@@ -15,9 +15,9 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from agents.aws_agent import cora_agent
+            from src.agents.aws_agent import cora_agent
 
-            agent = cora_agent()
+            agent = cora_agent(use_sandbox_execution=False)
 
             mock_create_tool.assert_not_called()
             assert "final_answer" in agent.tools
@@ -35,13 +35,14 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from agents.aws_agent import cora_agent
+            from src.agents.aws_agent import cora_agent
 
-            agent = cora_agent()
+            agent = cora_agent(use_sandbox_execution=False)
 
             assert agent.model == mock_model
             assert isinstance(agent.tools, dict)
-            assert agent.additional_authorized_imports == ["botocore.exceptions"]
+            assert "botocore.exceptions" in agent.additional_authorized_imports
+            assert "boto3" in agent.additional_authorized_imports
 
     def test_cora_agent_has_additional_authorized_imports(self):
         with (
@@ -55,9 +56,9 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from agents.aws_agent import cora_agent
+            from src.agents.aws_agent import cora_agent
 
-            agent = cora_agent()
+            agent = cora_agent(use_sandbox_execution=False)
 
             assert "botocore.exceptions" in agent.additional_authorized_imports
 
@@ -73,10 +74,10 @@ class TestCoraAgent:
             mock_model = MagicMock()
             mock_create_model.return_value = mock_model
 
-            from agents.aws_agent import cora_agent
+            from src.agents.aws_agent import cora_agent
             from src.tools import create_boto_client_tool
 
             tool = create_boto_client_tool()
-            agent = cora_agent()
+            agent = cora_agent(use_sandbox_execution=False)
 
             assert tool.name in agent.tools

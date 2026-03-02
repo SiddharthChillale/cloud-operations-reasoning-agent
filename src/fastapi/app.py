@@ -1,12 +1,13 @@
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Coroutine
+from typing import Any, Coroutine, Dict, Optional
 
 import anyio
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,27 +26,49 @@ load_dotenv()
 setup_logging(log_file="webapp.log")
 logger = get_logger(__name__)
 
-_db: SessionDatabase | None = None
-_session_manager: SessionManager | None = None
-_agent_factory: SessionAgentFactory | None = None
-_step_queues: dict[str, asyncio.Queue] = {}
-_active_runs: dict[str, dict] = {}
+_db: Optional[SessionDatabase] = None
+_session_manager: Optional[SessionManager] = None
+_agent_factory: Optional[SessionAgentFactory] = None
+_step_queues: Dict[str, asyncio.Queue] = {}
+_active_runs: Dict[str, dict] = {}
+
+
+def get_db() -> SessionDatabase:
+    if _db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    return _db
+
+
+def get_session_manager() -> SessionManager:
+    if _session_manager is None:
+        raise HTTPException(status_code=500, detail="Session manager not initialized")
+    return _session_manager
+
+
+def get_agent_factory() -> SessionAgentFactory:
+    if _agent_factory is None:
+        raise HTTPException(status_code=500, detail="Agent factory not initialized")
+    return _agent_factory
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _db, _session_manager, _agent_factory
-    # Use a persistent path for the database in production (Modal)
-    db_dir = Path("/root/.cora")
-    db_dir.mkdir(parents=True, exist_ok=True)
-    db_path = db_dir / "sessions.db"
 
-    _db = SessionDatabase(db_path=db_path)
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        logger.error("DATABASE_URL environment variable is missing")
+        if os.getenv("VERCEL"):
+            raise ValueError("DATABASE_URL is required for Vercel deployment")
+
+    _db = SessionDatabase(db_url=db_url)
     await _db.init_db()
-    _session_manager = SessionManager()
+
+    _session_manager = SessionManager(db_url=db_url)
     await _session_manager.initialize()
+
     _agent_factory = SessionAgentFactory(_session_manager)
-    logger.info(f"Web UI initialized with DB at {db_path}")
+    logger.info("Web UI initialized with PostgreSQL database")
     yield
     logger.info("Web UI shutting down")
 
@@ -121,12 +144,12 @@ def create_step_callback(session_id: str, run_number: int):
             return
 
         # Add token usage if available
-        if hasattr(memory_step, "token_usage") and memory_step.token_usage:
-            tu = memory_step.token_usage
+        token_usage = getattr(memory_step, "token_usage", None)
+        if token_usage:
             event_data["token_usage"] = {
-                "input_tokens": getattr(tu, "input_tokens", 0),
-                "output_tokens": getattr(tu, "output_tokens", 0),
-                "total_tokens": getattr(tu, "total_tokens", 0),
+                "input_tokens": getattr(token_usage, "input_tokens", 0),
+                "output_tokens": getattr(token_usage, "output_tokens", 0),
+                "total_tokens": getattr(token_usage, "total_tokens", 0),
             }
 
         # Safe queue push from thread
@@ -136,9 +159,10 @@ def create_step_callback(session_id: str, run_number: int):
             )
 
         # Safe DB save from thread
-        if app_loop and _session_manager:
+        session_manager = _session_manager
+        if app_loop and session_manager:
             asyncio.run_coroutine_threadsafe(
-                _session_manager.save_step_token_from_step(
+                session_manager.save_step_token_from_step(
                     session_id, run_number, step_index, memory_step
                 ),
                 app_loop,
@@ -159,7 +183,8 @@ async def health_check():
 
 @app.get("/sessions")
 async def list_sessions():
-    sessions = await _db.get_all_sessions()
+    db = get_db()
+    sessions = await db.get_all_sessions()
     return JSONResponse(
         content={
             "sessions": [
@@ -180,13 +205,14 @@ async def list_sessions():
 
 @app.post("/sessions")
 async def create_session(request: Request):
+    db = get_db()
     body = await request.json()
     title = body.get("title", "New Chat")
 
     if not title or (isinstance(title, str) and title.strip() == ""):
         title = "New Chat"
 
-    session = await _db.create_session(title)
+    session = await db.create_session(title)
 
     return JSONResponse(
         content={
@@ -198,11 +224,13 @@ async def create_session(request: Request):
 
 @app.get("/sessions/{session_id}")
 async def get_session(session_id: str):
-    session = await _db.get_session(session_id)
+    db = get_db()
+    session_manager = get_session_manager()
+    session = await db.get_session(session_id)
     if not session:
         return JSONResponse(content={"error": "Session not found"}, status_code=404)
 
-    tokens = await _session_manager.get_session_tokens(session_id)
+    tokens = await session_manager.get_session_tokens(session_id)
 
     return JSONResponse(
         content={
@@ -235,17 +263,19 @@ async def get_session(session_id: str):
 
 @app.patch("/sessions/{session_id}")
 async def update_session_title(request: Request, session_id: str):
+    db = get_db()
     body = await request.json()
     title = body.get("title", "New Chat")
 
-    await _db.update_session_title(session_id, title)
+    await db.update_session_title(session_id, title)
 
     return JSONResponse(content={"success": True})
 
 
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    await _db.delete_session(session_id)
+    db = get_db()
+    await db.delete_session(session_id)
 
     return JSONResponse(content={"success": True, "redirect_url": "/"})
 
@@ -289,12 +319,16 @@ async def interrupt_session(session_id: str):
 
 @app.get("/sessions/{session_id}/stream")
 async def stream_chat(request: Request, session_id: str, query: str = ""):
+    db = get_db()
+    session_manager = get_session_manager()
+    agent_factory = get_agent_factory()
+
     if not query:
         return JSONResponse(
             content={"error": "Query parameter is required"}, status_code=400
         )
 
-    session = await _db.get_session(session_id)
+    session = await db.get_session(session_id)
     if not session:
         return JSONResponse(content={"error": "Session not found"}, status_code=404)
 
@@ -303,12 +337,12 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
     if not existing_user_messages:
         # First user message - set title (27 chars + "..." = 30 chars)
         title = query[:27] + "..." if len(query) > 30 else query
-        await _db.update_session_title(session_id, title)
+        await db.update_session_title(session_id, title)
 
-    await _db.add_message(session_id, MessageRole.USER, query)
-    await _db.update_session_status(session_id, SessionStatus.RUNNING)
+    await db.add_message(session_id, MessageRole.USER, query)
+    await db.update_session_status(session_id, SessionStatus.RUNNING)
 
-    run_number = await _session_manager.get_next_run_number(session_id)
+    run_number = await session_manager.get_next_run_number(session_id)
 
     step_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _step_queues[session_id] = step_queue
@@ -343,7 +377,7 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
         }
 
         try:
-            agent = await _agent_factory.get_agent(session_id, step_callback)
+            agent = await agent_factory.get_agent(session_id, step_callback)
             _active_runs[session_id]["agent"] = agent
 
             def run_agent():
@@ -411,14 +445,14 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
                     raise agent_exception
 
                 for step in agent.memory.steps:
-                    _agent_factory.save_agent(agent, session_id, run_number)
+                    agent_factory.save_agent(agent, session_id, run_number)
 
                 serialized = serialize_agent_output(
                     response, session_id, str(request.base_url)
                 )
                 final_output = serialized.output
 
-                await _db.add_message(session_id, MessageRole.AGENT, final_output)
+                await db.add_message(session_id, MessageRole.AGENT, final_output)
 
                 yield {
                     "data": json.dumps(
@@ -432,8 +466,8 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
                     ),
                 }
 
-                await _db.update_session_status(session_id, SessionStatus.COMPLETED)
-                _agent_factory.save_agent(agent, session_id, run_number)
+                await db.update_session_status(session_id, SessionStatus.COMPLETED)
+                agent_factory.save_agent(agent, session_id, run_number)
 
         except Exception as e:
             logger.exception(f"Agent error: {e}")
@@ -445,7 +479,7 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
                     }
                 ),
             }
-            await _db.update_session_status(session_id, SessionStatus.IDLE)
+            await db.update_session_status(session_id, SessionStatus.IDLE)
 
         finally:
             if session_id in _step_queues:
@@ -461,7 +495,8 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
 
 @app.get("/sessions/{session_id}/tokens")
 async def get_tokens(session_id: str):
-    tokens = await _session_manager.get_session_tokens(session_id)
+    session_manager = get_session_manager()
+    tokens = await session_manager.get_session_tokens(session_id)
 
     return JSONResponse(content={"tokens": tokens})
 
