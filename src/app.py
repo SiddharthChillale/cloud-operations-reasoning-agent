@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 from smolagents.memory import ActionStep, PlanningStep, FinalAnswerStep
 
@@ -62,17 +61,18 @@ async def lifespan(app: FastAPI):
     if config.has_langfuse():
         try:
             from langfuse import get_client
- 
+
             langfuse = get_client()
-            
+
             # Verify connection
             if langfuse.auth_check():
                 logger.info("Langfuse client is authenticated and ready!")
             else:
                 raise
             from openinference.instrumentation.smolagents import SmolagentsInstrumentor
+
             SmolagentsInstrumentor().instrument()
-            
+
             logger.info("OTEL instrumentation enabled with Langfuse")
         except Exception as e:
             logger.warning(f"Failed to initialize OTEL instrumentation: {e}")
@@ -102,13 +102,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOADS_DIR = Path("uploads")
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+app = FastAPI(title="CORA Web API", lifespan=lifespan)
 
 
 def create_step_callback(session_id: str, run_number: int):
-    """Create a step callback that pushes events to queue and saves to DB."""
     step_counter = {"count": 0}
     try:
         app_loop = asyncio.get_running_loop()

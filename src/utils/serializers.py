@@ -1,12 +1,12 @@
+import base64
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 
 from smolagents.agent_types import AgentImage, AgentText
-
-UPLOADS_DIR = Path("uploads")
 
 
 @dataclass
@@ -46,28 +46,22 @@ def _serialize_image(
     session_id: str,
     base_url: str,
 ) -> MultimodalOutput:
-    """Save AgentImage to disk and return URL."""
+    """Convert AgentImage to base64 data URL."""
     image = getattr(agent_image, "value", agent_image)
 
-    session_dir = UPLOADS_DIR / f"session-{session_id}"
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    unique_id = uuid.uuid4().hex[:8]
-    filename = f"{timestamp}_{unique_id}.png"
-    filepath = session_dir / filename
-
-    image.save(filepath, format="PNG")
-
-    url = f"{base_url}/uploads/session-{session_id}/{filename}"
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    image_bytes = buffer.getvalue()
+    base64_str = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:image/png;base64,{base64_str}"
 
     return MultimodalOutput(
         output=str(agent_image),
         output_type="image",
-        url=url,
+        url=data_url,
         mime_type="image/png",
     )
 
 
 def get_uploads_dir() -> Path:
-    return UPLOADS_DIR
+    return Path("uploads")
