@@ -1,9 +1,6 @@
 from pathlib import Path
 import os
-import modal
 from smolagents import CodeAgent
-from smolagents.remote_executors import ModalExecutor
-from smolagents.monitoring import AgentLogger, LogLevel
 from yaml import safe_load
 
 from src.config import get_config
@@ -55,6 +52,10 @@ def cora_agent(
 
     if use_sandbox_execution:
         # Use a Modal executor with credentials from the environment config
+        from smolagents.remote_executors import ModalExecutor
+        from smolagents.monitoring import AgentLogger, LogLevel
+        import modal
+
         logger = AgentLogger(level=LogLevel.INFO)
         executor = ModalExecutor(
             additional_imports=[],

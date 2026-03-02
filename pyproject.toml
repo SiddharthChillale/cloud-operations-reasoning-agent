@@ -8,7 +8,6 @@ authors = [
     { name = "Siddharth Chillale" }
 ]
 dependencies = [
-    "boto3>=1.42.52",
     "python-dotenv",
     "fastapi>=0.104.0",
     "langfuse>=3.14.4",
@@ -22,6 +21,11 @@ dependencies = [
     "sqlalchemy>=2.0.25",
     "asyncpg>=0.29.0",
     "greenlet>=3.0.3",
+]
+
+[project.optional-dependencies]
+local_executor = [
+    "boto3>=1.42.52"
 ]
 
 [build-system]

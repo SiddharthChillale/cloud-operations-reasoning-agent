@@ -1,4 +1,3 @@
-import boto3
 from smolagents import tool
 
 from src.config import get_config
@@ -18,6 +17,8 @@ class CreateBotoClientTool:
         Returns:
             A boto3 client for the specified service
         """
+        import boto3
+
         if self.profile:
             session = boto3.Session(profile_name=self.profile)
         else:
