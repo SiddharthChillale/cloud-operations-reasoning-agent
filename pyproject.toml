@@ -23,10 +23,10 @@ dependencies = [
     "greenlet>=3.0.3",
 ]
 
-[project.optional-dependencies]
-local_executor = [
-    "boto3>=1.42.52"
-]
+# [project.optional-dependencies]
+# local_executor = [
+#     "boto3>=1.42.52"
+# ]
 
 [build-system]
 requires = ["hatchling"]
