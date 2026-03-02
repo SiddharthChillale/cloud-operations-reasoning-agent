@@ -10,7 +10,7 @@ config = get_config()
 
 def run_api():
     """Launch the FastAPI server."""
-    from src.fastapi.app import app
+    from src.app import app
 
     import uvicorn
 

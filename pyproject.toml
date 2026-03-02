@@ -36,8 +36,8 @@ package = true
 
 [project.scripts]
 cora = "main:main"
-cora-web = "src.fastapi.app:main"
-app = "src.fastapi.app:app"
+cora-web = "src.app:main"
+app = "src.app:app"
 
 [dependency-groups]
 dev = [

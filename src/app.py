@@ -24,10 +24,9 @@ from src.utils.serializers import serialize_agent_output
 
 load_dotenv()
 
-# Strict configuration loading
 config = get_config()
 
-setup_logging(log_file="webapp.log")
+setup_logging()
 logger = get_logger(__name__)
 
 _db: Optional[SessionDatabase] = None
