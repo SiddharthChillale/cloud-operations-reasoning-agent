@@ -1,27 +1,49 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
-import { Sun, Moon, MessageSquare } from "lucide-react";
+import { Sun, Moon, MessageSquare, LogOut, User } from "lucide-react";
 import Image from "next/image";
 import { motion, useScroll, useTransform } from "framer-motion";
+import { createClient } from "@/lib/supabase/client";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const supabase = createClient();
   
   const { scrollY } = useScroll();
   const logoOpacity = useTransform(scrollY, [100, 200], [0, 1]);
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  };
 
   const isChatPage = pathname.startsWith("/chat");
   const isHomePage = pathname === "/";
+  const isLoginPage = pathname === "/login";
 
   if (isChatPage) return null;
 
@@ -62,13 +84,30 @@ export function Navbar() {
             )}
           </button>
 
-          {!isChatPage && (
+          {user ? (
+            <>
+              <Link
+                href="/chat"
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Chat
+              </Link>
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </>
+          ) : !isLoginPage && (
             <Link
-              href="/chat"
+              href="/login"
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
             >
-              <MessageSquare className="w-4 h-4" />
-              Chat
+              <User className="w-4 h-4" />
+              Login
             </Link>
           )}
         </div>

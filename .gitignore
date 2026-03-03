@@ -12,6 +12,7 @@ wheels/
 # Environment files
 *.env
 .env.*
+*.env.*
 .config/
 
 client/node_modules/
@@ -29,3 +30,4 @@ uploads/
 
 CORA-Cloud-Operations-Reasoning-Agent/
 cora-fastapi-version.zip
+# *.env.local
