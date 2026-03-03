@@ -8,6 +8,7 @@ interface UseChatStreamOptions {
   sessionId: string;
   modelId?: string;
   dummyResponse?: boolean;
+  useManagerAgent?: boolean;
   onMessage?: (event: SSEMessage) => void;
   onPlanning?: (event: SSEMessage) => void;
   onAction?: (event: SSEMessage) => void;
@@ -27,6 +28,7 @@ export function useChatStream({
   sessionId,
   modelId,
   dummyResponse,
+  useManagerAgent,
   onMessage,
   onPlanning,
   onAction,
@@ -91,6 +93,9 @@ export function useChatStream({
       if (dummyResponse) {
         params.set("dr", "true");
       }
+      if (useManagerAgent) {
+        params.set("manager", "true");
+      }
       const url = `${API_BASE}/sessions/${sessionId}/stream?${params}`;
       console.log("[useChatStream] Connecting to:", url);
 
@@ -152,7 +157,7 @@ export function useChatStream({
         setIsStreaming(false);
       };
     },
-    [sessionId, modelId, dummyResponse, closeEventSource, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
+    [sessionId, modelId, dummyResponse, useManagerAgent, closeEventSource, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
   );
 
   useEffect(() => {

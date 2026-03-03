@@ -12,6 +12,8 @@ import {
 interface FeatureFlagsContextType {
   dummyResponse: boolean;
   setDummyResponse: (value: boolean) => void;
+  useManagerAgent: boolean;
+  setUseManagerAgent: (value: boolean) => void;
 }
 
 const FeatureFlagsContext = createContext<FeatureFlagsContextType | undefined>(undefined);
@@ -24,6 +26,7 @@ interface FeatureFlagsProviderProps {
 
 export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
   const [dummyResponse, setDummyResponseState] = useState(false);
+  const [useManagerAgent, setUseManagerAgentState] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -32,6 +35,7 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
       try {
         const flags = JSON.parse(stored);
         setDummyResponseState(flags.dummyResponse ?? false);
+        setUseManagerAgentState(flags.useManagerAgent ?? false);
       } catch {
         // Ignore parse errors
       }
@@ -41,7 +45,13 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
 
   const setDummyResponse = (value: boolean) => {
     setDummyResponseState(value);
-    const flags = { dummyResponse: value };
+    const flags = { dummyResponse: value, useManagerAgent };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(flags));
+  };
+
+  const setUseManagerAgent = (value: boolean) => {
+    setUseManagerAgentState(value);
+    const flags = { dummyResponse, useManagerAgent: value };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(flags));
   };
 
@@ -50,7 +60,7 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
   }
 
   return (
-    <FeatureFlagsContext.Provider value={{ dummyResponse, setDummyResponse }}>
+    <FeatureFlagsContext.Provider value={{ dummyResponse, setDummyResponse, useManagerAgent, setUseManagerAgent }}>
       {children}
     </FeatureFlagsContext.Provider>
   );
@@ -70,7 +80,7 @@ interface FeatureFlagsModalProps {
 }
 
 export function FeatureFlagsModal({ open, onOpenChange }: FeatureFlagsModalProps) {
-  const { dummyResponse, setDummyResponse } = useFeatureFlags();
+  const { dummyResponse, setDummyResponse, useManagerAgent, setUseManagerAgent } = useFeatureFlags();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -102,6 +112,30 @@ export function FeatureFlagsModal({ open, onOpenChange }: FeatureFlagsModalProps
               <span
                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${
                   dummyResponse ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium leading-none">Use Manager Agent</p>
+              <p className="text-xs text-muted-foreground">
+                Use the manager agent (orchestrates AWS + Diagramer)
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={useManagerAgent}
+              onClick={() => setUseManagerAgent(!useManagerAgent)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background ${
+                useManagerAgent ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${
+                  useManagerAgent ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>

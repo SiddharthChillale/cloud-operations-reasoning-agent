@@ -339,6 +339,7 @@ async def stream_chat(
     query: str = "",
     model_id: str = DEFAULT_MODEL_ID,
     dr: str = "",
+    manager: str = "",
 ):
     db = get_db()
     session_manager = get_session_manager()
@@ -411,7 +412,10 @@ async def stream_chat(
         }
 
         try:
-            agent = await agent_factory.get_agent(session_id, step_callback, model_id)
+            use_manager = manager.lower() in ("true", "1")
+            agent = await agent_factory.get_agent(
+                session_id, step_callback, model_id, use_manager
+            )
             _active_runs[session_id]["agent"] = agent
 
             def run_agent():

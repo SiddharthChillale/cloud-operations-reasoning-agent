@@ -102,7 +102,7 @@ export function ChatSessionView({
   const generateMessageId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
 
   const { setSessionTitle } = useSessionTitle();
-  const { dummyResponse } = useFeatureFlags();
+  const { dummyResponse, useManagerAgent } = useFeatureFlags();
 
   const handleMessage = useCallback(
     (event: SSEMessage) => {
@@ -180,6 +180,7 @@ export function ChatSessionView({
     sessionId,
     modelId,
     dummyResponse,
+    useManagerAgent,
     onMessage: handleMessage,
     onPlanning: handlePlanning,
     onAction: handleAction,

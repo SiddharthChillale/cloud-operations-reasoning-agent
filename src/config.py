@@ -70,6 +70,21 @@ class Config:
     def has_aws_profile(self) -> bool:
         return self.aws_profile is not None
 
+    @property
+    def supabase_url(self) -> Optional[str]:
+        return os.getenv("SUPABASE_URL")
+
+    @property
+    def supabase_anon_key(self) -> Optional[str]:
+        return os.getenv("SUPABASE_ANON_KEY")
+
+    @property
+    def supabase_bucket_name(self) -> str:
+        return os.getenv("SUPABASE_BUCKET_NAME", "agent-images")
+
+    def has_supabase(self) -> bool:
+        return bool(self.supabase_url and self.supabase_anon_key)
+
 
 def get_config() -> Config:
     return Config()

@@ -5,8 +5,6 @@ from yaml import safe_load
 
 from src.config import get_config
 from src.models import create_model, DEFAULT_MODEL_ID
-from src.tools import create_boto_client_tool
-
 
 # Load configuration strictly from environment variables via Config
 config = get_config()
@@ -36,6 +34,7 @@ def cora_agent(
     instructions = f"""AWS Regions that are relevant: {", ".join(aws_regions)}."""
 
     if config.aws_profile and not use_sandbox_execution:
+        from src.tools import create_boto_client_tool
         instructions += """Use the create_boto_client tool for creating a boto client, as boto3 library is not available to you."""
         tools.append(create_boto_client_tool())
         additional_authorized_imports.remove("boto3")

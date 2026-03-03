@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 from smolagents.agent_types import AgentImage, AgentText
 
+from src.config import get_config
+
 
 @dataclass
 class MultimodalOutput:
@@ -46,8 +48,31 @@ def _serialize_image(
     session_id: str,
     base_url: str,
 ) -> MultimodalOutput:
-    """Convert AgentImage to base64 data URL."""
+    """Convert AgentImage to URL (Supabase if available, otherwise base64 data URL)."""
+    config = get_config()
     image = getattr(agent_image, "value", agent_image)
+
+    if config.has_supabase:
+        try:
+            from src.storage.supabase_storage import get_storage_service
+
+            storage = get_storage_service()
+            public_url = storage.upload_image(
+                image=image,
+                folder=f"sessions/{session_id}",
+            )
+            return MultimodalOutput(
+                output=str(agent_image),
+                output_type="image",
+                url=public_url,
+                mime_type="image/png",
+            )
+        except Exception as e:
+            import logging
+
+            logging.warning(
+                f"Failed to upload to Supabase, falling back to base64: {e}"
+            )
 
     buffer = BytesIO()
     image.save(buffer, format="PNG")
