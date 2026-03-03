@@ -12,6 +12,7 @@ import { MultimediaRenderer } from "@/components/MultimediaRenderer";
 import { ChainOfThought } from "@/components/ChainOfThought";
 import { useSessionTitle } from "@/lib/SessionContext";
 import { ChatInput } from "@/components/ChatInput";
+import { useFeatureFlags } from "@/components/FeatureFlagsModal";
 import { cn } from "@/lib/utils";
 
 const MODELS = [
@@ -101,6 +102,7 @@ export function ChatSessionView({
   const generateMessageId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
 
   const { setSessionTitle } = useSessionTitle();
+  const { dummyResponse } = useFeatureFlags();
 
   const handleMessage = useCallback(
     (event: SSEMessage) => {
@@ -148,14 +150,16 @@ export function ChatSessionView({
     setStreamingContent(`Error: ${error}`);
   }, []);
 
-  const handleDone = useCallback(() => {
-    if (streamingContent) {
+  const handleDone = useCallback((outputFromDone?: string) => {
+    const isDummyMode = dummyResponse && outputFromDone !== undefined;
+    const content = outputFromDone ?? streamingContent;
+    if (content) {
       setMessages((prev) => [
         ...prev,
         {
           id: generateMessageId(),
           role: "agent",
-          content: streamingContent,
+          content: content,
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -166,13 +170,16 @@ export function ChatSessionView({
     setStreamingMimeType(null);
     setIsStreamingFinished(true);
     setCurrentStep(null);
-    queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
-    queryClient.invalidateQueries({ queryKey: ["sessions"] });
-  }, [streamingContent, queryClient, sessionId]);
+    if (!isDummyMode) {
+      queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    }
+  }, [streamingContent, queryClient, sessionId, dummyResponse]);
 
   const { isStreaming, startStream, stopStream } = useChatStream({
     sessionId,
     modelId,
+    dummyResponse,
     onMessage: handleMessage,
     onPlanning: handlePlanning,
     onAction: handleAction,

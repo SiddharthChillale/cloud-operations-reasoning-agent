@@ -10,6 +10,7 @@ import { createSession } from "@/lib/api";
 import { Session } from "@/lib/types";
 import { ChatInput } from "@/components/ChatInput";
 import { ChatSessionView } from "@/components/ChatSessionView";
+import { DevSettingsButton } from "@/components/DevSettingsButton";
 import { cn } from "@/lib/utils";
 import { useSessionTitle } from "@/lib/SessionContext";
 
@@ -79,6 +80,7 @@ function ChatPageContent() {
 
   return (
     <div className="relative flex h-full flex-1 flex-col overflow-hidden">
+      <DevSettingsButton />
       <AnimatePresence mode="wait">
         {showHero && (
           <motion.section

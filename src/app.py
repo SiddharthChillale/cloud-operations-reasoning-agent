@@ -334,7 +334,11 @@ async def interrupt_session(session_id: str):
 
 @app.get("/sessions/{session_id}/stream")
 async def stream_chat(
-    request: Request, session_id: str, query: str = "", model_id: str = DEFAULT_MODEL_ID
+    request: Request,
+    session_id: str,
+    query: str = "",
+    model_id: str = DEFAULT_MODEL_ID,
+    dr: str = "",
 ):
     db = get_db()
     session_manager = get_session_manager()
@@ -348,6 +352,19 @@ async def stream_chat(
     session = await db.get_session(session_id)
     if not session:
         return JSONResponse(content={"error": "Session not found"}, status_code=404)
+
+    if dr.lower() in ("true", "1"):
+        from src.utils.dummy_response import generate_dummy_response
+
+        await db.add_message(session_id, MessageRole.USER, query)
+        await db.update_session_status(session_id, SessionStatus.RUNNING)
+
+        async def dummy_event_generator():
+            await db.update_session_status(session_id, SessionStatus.COMPLETED)
+            async for event in generate_dummy_response(query):
+                yield {"data": event}
+
+        return EventSourceResponse(dummy_event_generator())
 
     # Check if this is the first user message
     existing_user_messages = [m for m in session.messages if m.role == MessageRole.USER]

@@ -3,6 +3,7 @@
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 import { ChatSessionView } from "@/components/ChatSessionView";
+import { DevSettingsButton } from "@/components/DevSettingsButton";
 
 export default function ChatSessionPage() {
   const params = useParams();
@@ -16,11 +17,14 @@ export default function ChatSessionPage() {
   }, []);
 
   return (
-    <ChatSessionView
-      sessionId={sessionId}
-      initialQuery={initialQuery ?? undefined}
-      onInitialQueryConsumed={initialQuery ? handleInitialQueryConsumed : undefined}
-      autoFocusInput={false}
-    />
+    <>
+      <ChatSessionView
+        sessionId={sessionId}
+        initialQuery={initialQuery ?? undefined}
+        onInitialQueryConsumed={initialQuery ? handleInitialQueryConsumed : undefined}
+        autoFocusInput={false}
+      />
+      <DevSettingsButton />
+    </>
   );
 }

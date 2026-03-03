@@ -7,12 +7,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 interface UseChatStreamOptions {
   sessionId: string;
   modelId?: string;
+  dummyResponse?: boolean;
   onMessage?: (event: SSEMessage) => void;
   onPlanning?: (event: SSEMessage) => void;
   onAction?: (event: SSEMessage) => void;
   onFinal?: (event: SSEMessage) => void;
   onError?: (error: string) => void;
-  onDone?: () => void;
+  onDone?: (output?: string) => void;
 }
 
 interface UseChatStreamReturn {
@@ -25,6 +26,7 @@ interface UseChatStreamReturn {
 export function useChatStream({
   sessionId,
   modelId,
+  dummyResponse,
   onMessage,
   onPlanning,
   onAction,
@@ -86,6 +88,9 @@ export function useChatStream({
       if (modelId) {
         params.set("model_id", modelId);
       }
+      if (dummyResponse) {
+        params.set("dr", "true");
+      }
       const url = `${API_BASE}/sessions/${sessionId}/stream?${params}`;
       console.log("[useChatStream] Connecting to:", url);
 
@@ -127,7 +132,7 @@ export function useChatStream({
               break;
             case "done":
               console.log("[useChatStream] Stream done");
-              onDone?.();
+              onDone?.(data.output);
               closeStream();
               break;
           }
@@ -147,7 +152,7 @@ export function useChatStream({
         setIsStreaming(false);
       };
     },
-    [sessionId, modelId, closeEventSource, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
+    [sessionId, modelId, dummyResponse, closeEventSource, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
   );
 
   useEffect(() => {
