@@ -1,9 +1,14 @@
 "use client";
 
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Send, Square } from "lucide-react";
+import { Send, Square, ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+
+interface ModelOption {
+  id: string;
+  name: string;
+}
 
 interface ChatInputProps {
   onSubmit: (value: string) => void;
@@ -12,6 +17,9 @@ interface ChatInputProps {
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
+  modelId?: string;
+  onModelChange?: (modelId: string) => void;
+  models?: ModelOption[];
 }
 
 export function ChatInput({
@@ -21,9 +29,16 @@ export function ChatInput({
   placeholder = "Ask anything...",
   autoFocus = true,
   className,
+  modelId,
+  onModelChange,
+  models = [],
 }: ChatInputProps) {
   const [value, setValue] = useState("");
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const currentModel = models.find(m => m.id === modelId) || models[0];
 
   useEffect(() => {
     if (autoFocus) {
@@ -37,6 +52,16 @@ export function ChatInput({
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
   }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const resetInput = useCallback(() => {
     setValue("");
@@ -57,6 +82,11 @@ export function ChatInput({
     }
   };
 
+  const handleModelSelect = (id: string) => {
+    onModelChange?.(id);
+    setShowModelDropdown(false);
+  };
+
   return (
     <div
       className={cn(
@@ -70,12 +100,57 @@ export function ChatInput({
         placeholder={placeholder}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={handleKeyDown}
-        className="w-full resize-none bg-transparent px-5 py-4 pr-16 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+        className="w-full resize-none bg-transparent px-5 py-4 pr-40 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
         rows={1}
         disabled={isStreaming && !stopStream}
       />
 
       <div className="absolute bottom-3 right-3 flex items-center gap-2">
+        {models.length > 0 && (
+          <div ref={dropdownRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setShowModelDropdown(!showModelDropdown)}
+              className={cn(
+                "flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
+                "bg-muted hover:bg-muted/80 text-foreground",
+                isStreaming && "opacity-50 cursor-not-allowed"
+              )}
+              disabled={isStreaming}
+            >
+              <span>{currentModel?.name || "Model"}</span>
+              <ChevronDown className="h-3 w-3" />
+            </button>
+            
+            <AnimatePresence>
+              {showModelDropdown && (
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  className="absolute bottom-full right-0 mb-1 w-40 rounded-lg border bg-background p-1 shadow-lg"
+                >
+                  {models.map((model) => (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => handleModelSelect(model.id)}
+                      className={cn(
+                        "flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                        model.id === modelId
+                          ? "bg-primary/10 text-primary"
+                          : "hover:bg-muted"
+                      )}
+                    >
+                      {model.name}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
         <AnimatePresence initial={false} mode="wait">
           {isStreaming ? (
             <motion.button

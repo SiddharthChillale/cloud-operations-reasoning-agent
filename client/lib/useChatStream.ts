@@ -6,6 +6,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface UseChatStreamOptions {
   sessionId: string;
+  modelId?: string;
   onMessage?: (event: SSEMessage) => void;
   onPlanning?: (event: SSEMessage) => void;
   onAction?: (event: SSEMessage) => void;
@@ -23,6 +24,7 @@ interface UseChatStreamReturn {
 
 export function useChatStream({
   sessionId,
+  modelId,
   onMessage,
   onPlanning,
   onAction,
@@ -80,9 +82,11 @@ export function useChatStream({
       void closeEventSource(false);
       runActiveRef.current = false;
 
-      const url = `${API_BASE}/sessions/${sessionId}/stream?${new URLSearchParams(
-        { query }
-      )}`;
+      const params = new URLSearchParams({ query });
+      if (modelId) {
+        params.set("model_id", modelId);
+      }
+      const url = `${API_BASE}/sessions/${sessionId}/stream?${params}`;
       console.log("[useChatStream] Connecting to:", url);
 
       const eventSource = new EventSource(url);
@@ -143,7 +147,7 @@ export function useChatStream({
         setIsStreaming(false);
       };
     },
-    [sessionId, closeEventSource, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
+    [sessionId, modelId, closeEventSource, closeStream, onMessage, onPlanning, onAction, onFinal, onError, onDone]
   );
 
   useEffect(() => {

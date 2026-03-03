@@ -14,6 +14,12 @@ import { useSessionTitle } from "@/lib/SessionContext";
 import { ChatInput } from "@/components/ChatInput";
 import { cn } from "@/lib/utils";
 
+const MODELS = [
+  { id: "gpt-4o", name: "GPT-4o" },
+  { id: "gpt-4o-mini", name: "GPT-4o mini" },
+  { id: "claude-haiku-4.5", name: "Claude Haiku 4.5" },
+];
+
 function MessageWithCopy({ message }: { message: Message }) {
   const [copied, setCopied] = useState(false);
 
@@ -90,6 +96,7 @@ export function ChatSessionView({
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
   const [streamingMimeType, setStreamingMimeType] = useState<string | null>(null);
   const [isStreamingFinished, setIsStreamingFinished] = useState(false);
+  const [modelId, setModelId] = useState(MODELS[0].id);
 
   const generateMessageId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
 
@@ -165,6 +172,7 @@ export function ChatSessionView({
 
   const { isStreaming, startStream, stopStream } = useChatStream({
     sessionId,
+    modelId,
     onMessage: handleMessage,
     onPlanning: handlePlanning,
     onAction: handleAction,
@@ -361,6 +369,9 @@ export function ChatSessionView({
             isStreaming={isStreaming}
             stopStream={stopStream}
             autoFocus={autoFocusInput}
+            modelId={modelId}
+            onModelChange={setModelId}
+            models={MODELS}
           />
         </motion.div>
         {tokens && tokens.total_tokens > 0 && (

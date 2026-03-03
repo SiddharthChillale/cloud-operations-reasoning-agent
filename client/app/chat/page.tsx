@@ -13,6 +13,12 @@ import { ChatSessionView } from "@/components/ChatSessionView";
 import { cn } from "@/lib/utils";
 import { useSessionTitle } from "@/lib/SessionContext";
 
+const MODELS = [
+  { id: "gpt-4o", name: "GPT-4o" },
+  { id: "gpt-4o-mini", name: "GPT-4o mini" },
+  { id: "claude-haiku-4.5", name: "Claude Haiku 4.5" },
+];
+
 function ChatPageContent() {
   const { theme } = useTheme();
   const searchParams = useSearchParams();
@@ -21,6 +27,7 @@ function ChatPageContent() {
   const [stage, setStage] = useState<"idle" | "bootstrapping" | "active">("idle");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+  const [modelId, setModelId] = useState(MODELS[0].id);
   const queryClient = useQueryClient();
   const { setSessionTitle } = useSessionTitle();
 
@@ -106,6 +113,9 @@ function ChatPageContent() {
                 onSubmit={handleInitialSubmit}
                 isStreaming={createSessionMutation.isPending || stage === "bootstrapping"}
                 placeholder="Type your first query..."
+                modelId={modelId}
+                onModelChange={setModelId}
+                models={MODELS}
               />
             </motion.div>
           </motion.section>

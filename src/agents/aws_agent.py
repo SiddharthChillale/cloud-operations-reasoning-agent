@@ -4,7 +4,7 @@ from smolagents import CodeAgent
 from yaml import safe_load
 
 from src.config import get_config
-from src.models import create_model
+from src.models import create_model, DEFAULT_MODEL_ID
 from src.tools import create_boto_client_tool
 
 
@@ -25,9 +25,11 @@ with open(prompt_file_path) as f:
 
 
 def cora_agent(
-    use_sandbox_execution=True, aws_regions: list[str] = ["us-east-2"]
+    use_sandbox_execution=True,
+    aws_regions: list[str] = ["us-east-2"],
+    model_id: str = DEFAULT_MODEL_ID,
 ) -> CodeAgent:
-    model = create_model()
+    model = create_model(model_id)
 
     tools = []
     additional_authorized_imports = ["boto3", "botocore.exceptions"]

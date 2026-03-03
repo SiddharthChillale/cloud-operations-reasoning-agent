@@ -25,20 +25,12 @@ class Config:
         return _get_required_env("DATABASE_URL")
 
     @property
-    def llm_provider_name(self) -> str:
-        return _get_required_env("LLM_PROVIDER_NAME")
+    def ai_gateway_api_key(self) -> str:
+        return _get_required_env("AI_GATEWAY_API_KEY")
 
     @property
-    def llm_model_id(self) -> str:
-        return _get_required_env("LLM_MODEL_ID")
-
-    @property
-    def llm_api_base(self) -> str:
-        return _get_required_env("LLM_API_BASE")
-
-    @property
-    def llm_api_key(self) -> str:
-        return _get_required_env("LLM_API_KEY")
+    def ai_gateway_base_url(self) -> str:
+        return os.getenv("AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1")
 
     @property
     def modal_token_id(self) -> str:
