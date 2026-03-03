@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Code, Loader2 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { SSEMessage } from "@/lib/types";
 import { CodeBlock } from "./CodeBlock";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -38,6 +39,7 @@ function getStepContent(step: SSEMessage): string {
 export function LiveThinking({ step, className }: LiveThinkingProps) {
   const [displayedContent, setDisplayedContent] = useState("");
   const [isComplete, setIsComplete] = useState(false);
+  const animationRef = useRef<NodeJS.Timeout | null>(null);
 
   const content = step ? getStepContent(step) : "";
 
@@ -48,27 +50,39 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
       return;
     }
 
+    if (animationRef.current) {
+      clearTimeout(animationRef.current);
+    }
+
     setDisplayedContent("");
     setIsComplete(false);
 
+    const chunkSize = 4;
+    const minDuration = 15;
+    const maxDuration = 30;
     let currentIndex = 0;
-    const words = content.split(/(\s+)/);
-    const minDuration = 50;
-    const maxDuration = 100;
 
-    const typeNextWord = () => {
-      if (currentIndex < words.length) {
-        setDisplayedContent(words.slice(0, currentIndex + 1).join(""));
-        currentIndex++;
+    const typeNextChunk = () => {
+      if (currentIndex < content.length) {
+        const endIndex = Math.min(currentIndex + chunkSize, content.length);
+        setDisplayedContent(content.slice(0, endIndex));
+        currentIndex = endIndex;
+        
         const randomDuration = Math.random() * (maxDuration - minDuration) + minDuration;
-        setTimeout(typeNextWord, randomDuration);
+        animationRef.current = setTimeout(typeNextChunk, randomDuration);
       } else {
+        setDisplayedContent(content);
         setIsComplete(true);
       }
     };
 
-    const initialDelay = setTimeout(typeNextWord, 300);
-    return () => clearTimeout(initialDelay);
+    animationRef.current = setTimeout(typeNextChunk, 200);
+
+    return () => {
+      if (animationRef.current) {
+        clearTimeout(animationRef.current);
+      }
+    };
   }, [content, step]);
 
   if (!step) {
@@ -100,7 +114,7 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
         key={step.step_number}
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 20 }}
+        exit={{ opacity: 0, x: 20, transition: { duration: 0.15 } }}
         transition={{ duration: 0.2 }}
         className={cn(
           "flex items-start gap-3 px-4 py-3 rounded-lg",
@@ -128,7 +142,7 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-2">
             <span className={cn("text-xs font-medium uppercase tracking-wide", isPlanning ? "text-purple-600" : "text-blue-600")}>
               {isPlanning ? "Planning" : "Action"}
             </span>
@@ -144,8 +158,17 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
             )}
           </div>
 
-          <div className="text-sm text-foreground">
-            <TypewriterContent content={displayedContent} />
+          <div className="text-sm text-foreground relative">
+            <div className={cn(!isComplete && "pr-4")}>
+              <MarkdownRenderer content={displayedContent} />
+            </div>
+            {!isComplete && (
+              <motion.span
+                animate={{ opacity: [1, 0] }}
+                transition={{ repeat: Infinity, duration: 0.6 }}
+                className="absolute right-0 top-0 w-2 h-5 bg-primary rounded-sm"
+              />
+            )}
           </div>
 
           {step.code_action && !isPlanning && (
@@ -153,7 +176,7 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className="mt-2"
+              className="mt-3"
             >
               <CodePreview code={step.code_action} />
             </motion.div>
@@ -162,10 +185,6 @@ export function LiveThinking({ step, className }: LiveThinkingProps) {
       </motion.div>
     </AnimatePresence>
   );
-}
-
-function TypewriterContent({ content }: { content: string }) {
-  return <span className="whitespace-pre-wrap">{content}</span>;
 }
 
 function CodePreview({ code }: { code: string }) {

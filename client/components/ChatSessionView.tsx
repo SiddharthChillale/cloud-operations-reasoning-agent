@@ -2,18 +2,57 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, Copy, Check } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { getSession } from "@/lib/api";
 import { Message, Session, SSEMessage } from "@/lib/types";
 import { useChatStream } from "@/lib/useChatStream";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { MultimediaRenderer } from "@/components/MultimediaRenderer";
-import { LiveThinking } from "@/components/LiveThinking";
-import { ReasoningHistory } from "@/components/ReasoningHistory";
+import { ChainOfThought } from "@/components/ChainOfThought";
 import { useSessionTitle } from "@/lib/SessionContext";
 import { ChatInput } from "@/components/ChatInput";
 import { cn } from "@/lib/utils";
+
+function MessageWithCopy({ message }: { message: Message }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col animate-fade-in",
+        message.role === "user" ? "items-end" : "items-start",
+      )}
+    >
+      <div
+        className={cn(
+          "max-w-3xl rounded-3xl px-6 py-4",
+          message.role === "user" ? "bg-card" : "text-foreground",
+        )}
+      >
+        {message.role === "user" ? (
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+        ) : (
+          <div className="text-sm leading-relaxed">
+            <MarkdownRenderer content={message.content} />
+          </div>
+        )}
+      </div>
+      <button
+        onClick={handleCopy}
+        className="mt-1 p-1 text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+}
 
 interface ChatSessionViewProps {
   sessionId: string;
@@ -249,28 +288,7 @@ export function ChatSessionView({
       >
         <div className="mx-auto max-w-3xl space-y-6 p-6 pb-40">
           {messages.map((message) => (
-            <div
-              key={message.id}
-              className={cn(
-                "flex animate-fade-in",
-                message.role === "user" ? "justify-end" : "justify-start",
-              )}
-            >
-              <div
-                className={cn(
-                  "max-w-3xl rounded-3xl px-6 py-4",
-                  message.role === "user" ? "bg-card" : "text-foreground",
-                )}
-              >
-                {message.role === "user" ? (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
-                ) : (
-                  <div className="text-sm leading-relaxed">
-                    <MarkdownRenderer content={message.content} />
-                  </div>
-                )}
-              </div>
-            </div>
+            <MessageWithCopy key={message.id} message={message} />
           ))}
 
           {pendingMessage && (
@@ -296,35 +314,22 @@ export function ChatSessionView({
           {hasSteps && (
             <div className="flex justify-start px-6">
               <div className="w-full max-w-3xl">
-                <AnimatePresence mode="wait">
-                  {isStreamingFinished ? (
-                    <motion.div
-                      key="history"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                    >
-                      <ReasoningHistory
-                        steps={[...completedSteps, currentStep].filter((s): s is SSEMessage => s !== null)}
-                      />
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="live"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                    >
-                      <LiveThinking step={currentStep} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                <ChainOfThought
+                  steps={completedSteps}
+                  currentStep={currentStep}
+                  isStreaming={isStreaming && !isStreamingFinished}
+                />
               </div>
             </div>
           )}
 
           {streamingContent && (
-            <div className="flex justify-start px-6">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="flex justify-start px-6"
+            >
               <div className="w-full max-w-3xl p-6 text-foreground shadow-sm">
                 <MultimediaRenderer
                   output={streamingContent}
@@ -333,10 +338,17 @@ export function ChatSessionView({
                   mime_type={streamingMimeType}
                 />
               </div>
-            </div>
+            </motion.div>
           )}
 
-          {isStreaming && !streamingContent && !hasSteps && <LiveThinking step={null} />}
+          {isStreaming && !streamingContent && !hasSteps && (
+            <div className="flex justify-start px-6">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Thinking...</span>
+              </div>
+            </div>
+          )}
 
           <div ref={messagesEndRef} />
         </div>

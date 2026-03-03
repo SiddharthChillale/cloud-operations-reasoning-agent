@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp, Brain, Code, CheckCircle2, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Brain, Code, CheckCircle2, Sparkles, Copy, Check, ChevronsDown, ChevronsUp } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { SSEMessage } from "@/lib/types";
@@ -40,6 +40,8 @@ function stripMarkdown(text: string): string {
 
 export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   if (!steps || steps.length === 0) {
     return null;
@@ -48,17 +50,49 @@ export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
   const planningSteps = steps.filter((s) => s.step_type === "PlanningStep");
   const actionSteps = steps.filter((s) => s.step_type === "ActionStep");
 
+  const copyAllReasoning = async () => {
+    const allText = steps.map((step, index) => {
+      const isPlanning = step.step_type === "PlanningStep";
+      const prefix = isPlanning ? "Planning" : "Action";
+      let text = `--- ${prefix} ${step.step_number} ---\n`;
+      
+      if (isPlanning && step.plan) {
+        text += step.plan + "\n";
+      } else if (step.model_output) {
+        text += parseThought(step.model_output) + "\n";
+      }
+      if (step.code_action) {
+        text += `\nCode:\n${step.code_action}\n`;
+      }
+      if (step.observations) {
+        text += `\nOutput:\n${step.observations}\n`;
+      }
+      if (step.error) {
+        text += `\nError:\n${step.error}\n`;
+      }
+      return text;
+    }).join("\n");
+
+    await navigator.clipboard.writeText(allText);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
+  };
+
+  const toggleAll = () => {
+    setAllExpanded(!allExpanded);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={cn("rounded-lg overflow-hidden", className)}
+      className={cn("rounded-lg overflow-hidden border border-border/50", className)}
     >
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className={cn(
           "flex items-center justify-between w-full px-4 py-3",
-          "text-left transition-colors",
+          "text-left transition-colors hover:bg-muted/50",
         )}
       >
         <div className="flex items-center gap-3">
@@ -94,9 +128,43 @@ export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="overflow-hidden"
           >
+            <div className="flex items-center justify-between px-4 py-2 border-t border-border/50 bg-muted/30">
+              <button
+                onClick={toggleAll}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {allExpanded ? (
+                  <>
+                    <ChevronsUp className="w-3.5 h-3.5" />
+                    <span>Collapse All</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronsDown className="w-3.5 h-3.5" />
+                    <span>Expand All</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={copyAllReasoning}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {copiedAll ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy All</span>
+                  </>
+                )}
+              </button>
+            </div>
             <div className="px-4 pb-4 space-y-2 border-t border-border/50">
               {steps.map((step, index) => (
-                <StepItem key={index} step={step} stepIndex={index} />
+                <StepItem key={index} step={step} stepIndex={index} isExpanded={allExpanded} />
               ))}
             </div>
           </motion.div>
@@ -106,8 +174,9 @@ export function ReasoningHistory({ steps, className }: ReasoningHistoryProps) {
   );
 }
 
-function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+function StepItem({ step, stepIndex, isExpanded }: { step: SSEMessage; stepIndex: number; isExpanded: boolean }) {
+  const [isStepExpanded, setIsStepExpanded] = useState(isExpanded);
+  const [copied, setCopied] = useState(false);
   const isPlanning = step.step_type === "PlanningStep";
   const defaultFields = isPlanning ? new Set<string>() : new Set<string>(["thought"]);
   const [expandedFields, setExpandedFields] = useState<Set<string>>(defaultFields);
@@ -127,6 +196,25 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
   const isFieldExpanded = (field: string) => expandedFields.has(field);
   const thought = step.model_output ? parseThought(step.model_output) : "";
 
+  const getStepContent = () => {
+    if (isPlanning && step.plan) {
+      return step.plan;
+    }
+    if (thought) {
+      return thought;
+    }
+    return "";
+  };
+
+  const copyStepContent = async () => {
+    const content = getStepContent();
+    if (content) {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -10 }}
@@ -135,8 +223,8 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
       className="pt-3"
     >
       <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 text-sm font-medium w-full rounded px-2 py-1 -ml-2 transition-colors"
+        onClick={() => setIsStepExpanded(!isStepExpanded)}
+        className="flex items-center gap-2 text-sm font-medium w-full rounded px-2 py-1 -ml-2 transition-colors hover:bg-muted/50"
       >
         {isPlanning ? (
           <Brain className="w-4 h-4 text-purple-500 flex-shrink-0" />
@@ -152,7 +240,7 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
           </span>
         )}
         <span className="flex-1" />
-        {isExpanded ? (
+        {isStepExpanded ? (
           <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0" />
         ) : (
           <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -160,7 +248,7 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
       </button>
 
       <AnimatePresence>
-        {isExpanded && (
+        {isStepExpanded && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -174,7 +262,16 @@ function StepItem({ step, stepIndex }: { step: SSEMessage; stepIndex: number }) 
               )}
 
               {!isPlanning && thought && (
-                <p className="italic whitespace-pre-wrap">{thought}</p>
+                <div className="relative">
+                  <p className="italic whitespace-pre-wrap pr-8">{thought}</p>
+                  <button
+                    onClick={copyStepContent}
+                    className="absolute top-0 right-0 p-1 text-muted-foreground hover:text-foreground transition-colors"
+                    title="Copy thought"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               )}
 
               {step.code_action && (
