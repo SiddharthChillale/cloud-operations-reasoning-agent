@@ -365,7 +365,7 @@ export function ChatSessionView({
         </motion.div>
         {tokens && tokens.total_tokens > 0 && (
           <div className="pointer-events-auto mt-2 text-center text-xs text-muted-foreground">
-            Tokens: {tokens.input_tokens} in / {tokens.output_tokens} out / {tokens.total_tokens} total
+            Tokens: {Math.round((tokens.input_tokens) / 2)} in / {Math.round((tokens.output_tokens) / 2)} out / {Math.round((tokens.total_tokens) / 2)} total
           </div>
         )}
       </div>
