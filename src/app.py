@@ -15,6 +15,7 @@ from smolagents.memory import ActionStep, PlanningStep, FinalAnswerStep
 
 from src.config import get_config
 from src.agents import SessionAgentFactory
+from src.models import DEFAULT_MODEL_ID
 from src.session.database import SessionDatabase
 from src.session.manager import SessionManager
 from src.session.models import MessageRole, SessionStatus
@@ -101,6 +102,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
 
 def create_step_callback(session_id: str, run_number: int):
     step_counter = {"count": 0}
@@ -331,7 +333,13 @@ async def interrupt_session(session_id: str):
 
 
 @app.get("/sessions/{session_id}/stream")
-async def stream_chat(request: Request, session_id: str, query: str = ""):
+async def stream_chat(
+    request: Request,
+    session_id: str,
+    query: str = "",
+    model_id: str = DEFAULT_MODEL_ID,
+    dr: str = "",
+):
     db = get_db()
     session_manager = get_session_manager()
     agent_factory = get_agent_factory()
@@ -344,6 +352,19 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
     session = await db.get_session(session_id)
     if not session:
         return JSONResponse(content={"error": "Session not found"}, status_code=404)
+
+    if dr.lower() in ("true", "1"):
+        from src.utils.dummy_response import generate_dummy_response
+
+        await db.add_message(session_id, MessageRole.USER, query)
+        await db.update_session_status(session_id, SessionStatus.RUNNING)
+
+        async def dummy_event_generator():
+            await db.update_session_status(session_id, SessionStatus.COMPLETED)
+            async for event in generate_dummy_response(query):
+                yield {"data": event}
+
+        return EventSourceResponse(dummy_event_generator())
 
     # Check if this is the first user message
     existing_user_messages = [m for m in session.messages if m.role == MessageRole.USER]
@@ -390,7 +411,7 @@ async def stream_chat(request: Request, session_id: str, query: str = ""):
         }
 
         try:
-            agent = await agent_factory.get_agent(session_id, step_callback)
+            agent = await agent_factory.get_agent(session_id, step_callback, model_id)
             _active_runs[session_id]["agent"] = agent
 
             def run_agent():

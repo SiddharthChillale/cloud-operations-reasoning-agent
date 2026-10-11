@@ -5,6 +5,7 @@ from smolagents import CodeAgent
 
 from src.agents.aws_agent import cora_agent
 from src.session.manager import SessionManager
+from src.models import DEFAULT_MODEL_ID
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +16,13 @@ class SessionAgentFactory:
     def __init__(self, session_manager: SessionManager) -> None:
         self._session_manager = session_manager
 
-    def create_fresh_agent(self, step_callback: Optional[Callable] = None) -> CodeAgent:
+    def create_fresh_agent(
+        self,
+        step_callback: Optional[Callable] = None,
+        model_id: str = DEFAULT_MODEL_ID,
+    ) -> CodeAgent:
         """Create a new CodeAgent with empty memory and optional step callback."""
-        agent = cora_agent()
+        agent = cora_agent(model_id=model_id)
         if step_callback:
             from smolagents.memory import ActionStep, PlanningStep, FinalAnswerStep
 
@@ -27,10 +32,13 @@ class SessionAgentFactory:
         return agent
 
     async def get_agent(
-        self, session_id: str, step_callback: Optional[Callable] = None
+        self,
+        session_id: str,
+        step_callback: Optional[Callable] = None,
+        model_id: str = DEFAULT_MODEL_ID,
     ) -> CodeAgent:
         """Get an agent for a session, restoring its memory state if available."""
-        agent = self.create_fresh_agent(step_callback)
+        agent = self.create_fresh_agent(step_callback, model_id)
         steps = await self._session_manager.load_agent_state(session_id)
         if steps and hasattr(agent, "memory") and agent.memory:
             agent.memory.steps = steps

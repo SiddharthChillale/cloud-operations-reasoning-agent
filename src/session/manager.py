@@ -188,7 +188,7 @@ class SessionManager:
     def save_agent_state(
         self, agent: CodeAgent, session_id: str, run_number: int
     ) -> None:
-        """Save agent memory steps and step tokens to database (non-blocking)."""
+        """Save agent memory steps to database (non-blocking)."""
         try:
             steps = (
                 agent.memory.steps if hasattr(agent, "memory") and agent.memory else []
@@ -196,19 +196,6 @@ class SessionManager:
 
             pickled = pickle.dumps(steps)
             asyncio.create_task(self.save_agent_steps(session_id, pickled))
-
-            for step_index, step in enumerate(steps):
-                try:
-                    if isinstance(step, (ActionStep, PlanningStep)):
-                        token_usage = getattr(step, "token_usage", None)
-                        if token_usage:
-                            asyncio.create_task(
-                                self.save_step_token_from_step(
-                                    session_id, run_number, step_index, step
-                                )
-                            )
-                except Exception:
-                    pass
         except (pickle.PickleError, TypeError) as e:
             logger.warning(f"Failed to save agent state for session {session_id}: {e}")
 

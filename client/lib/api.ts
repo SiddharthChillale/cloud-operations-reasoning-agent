@@ -82,11 +82,14 @@ export async function interruptSession(sessionId: string): Promise<void> {
 
 export async function* streamChat(
   sessionId: string,
-  query: string
+  query: string,
+  dummyResponse?: boolean
 ): AsyncGenerator<SSEMessage, void, unknown> {
-  const url = `${API_BASE}/sessions/${sessionId}/stream?${new URLSearchParams({
-    query,
-  })}`;
+  const params = new URLSearchParams({ query });
+  if (dummyResponse) {
+    params.set("dr", "true");
+  }
+  const url = `${API_BASE}/sessions/${sessionId}/stream?${params}`;
 
   console.log("[streamChat] Starting stream to:", url);
 

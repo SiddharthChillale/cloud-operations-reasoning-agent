@@ -2,30 +2,47 @@ from typing import Optional
 from smolagents import OpenAIModel
 from src.config import get_config
 
+AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
-def create_model() -> OpenAIModel:
+MODELS = {
+    "gpt-4o": {
+        "id": "gpt-4o",
+        "name": "GPT-4o",
+        "provider": "openai/gpt-4o",
+    },
+    "gpt-4o-mini": {
+        "id": "gpt-4o-mini",
+        "name": "GPT-4o mini",
+        "provider": "openai/gpt-4o-mini",
+    },
+    "claude-haiku-4.5": {
+        "id": "claude-haiku-4.5",
+        "name": "Claude 4.5 Haiku",
+        "provider": "anthropic/claude-haiku-4.5",
+    },
+}
+
+DEFAULT_MODEL_ID = "gpt-4o"
+
+
+def create_model(model_id: str = DEFAULT_MODEL_ID) -> OpenAIModel:
     config = get_config()
+    model_config = MODELS.get(model_id)
 
-    # Smolagents OpenAIModel can be used for most providers as long as they
-    # provide an OpenAI-compatible interface (like OpenRouter, Anthropic proxy, etc.)
+    if not model_config:
+        raise ValueError(
+            f"Invalid model_id: {model_id}. Available: {list(MODELS.keys())}"
+        )
+
     return OpenAIModel(
-        model_id=config.llm_model_id,
-        api_base=config.llm_api_base,
-        api_key=config.llm_api_key,
+        model_id=model_config["provider"],
+        api_base=AI_GATEWAY_BASE_URL,
+        api_key=config.ai_gateway_api_key,
     )
 
 
-# Instantiate the model
-# NOTE: This will fail at import time if required environment variables are missing
-# because get_config() is called during create_model()
-try:
-    openrouter_model = create_model()
-except RuntimeError as e:
-    # Log the error but don't prevent the module from being imported
-    # though any subsequent use of openrouter_model will fail
-    import logging
+def get_available_models() -> list[dict]:
+    return [{"id": m["id"], "name": m["name"]} for m in MODELS.values()]
 
-    logging.getLogger(__name__).warning(f"Failed to initialize LLM: {e}")
-    openrouter_model = None
 
-__all__ = ["openrouter_model", "create_model"]
+__all__ = ["create_model", "get_available_models", "MODELS", "DEFAULT_MODEL_ID"]
